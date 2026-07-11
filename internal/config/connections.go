@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -19,6 +20,23 @@ type Connection struct {
 
 var connectionsFile = defaultConnectionsFile()
 
+// validConnectionNamePattern restricts connection names to characters that
+// are safe to interpolate into a zsh array-subscript expression. This is a
+// security boundary: names come from user input (typed directly today, and
+// eventually via a "create connection" TUI form), and the zsh script that
+// resolves a connection is built with fmt.Sprintf and run via
+// exec.Command("zsh", "-c", script). Anything outside this charset could
+// break out of the ${MONGO_CONNECTIONS[%s]} subscript and inject arbitrary
+// shell commands.
+var validConnectionNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// isValidConnectionName reports whether name is safe to interpolate into the
+// zsh script built by ResolveConnection/ListConnections. It must be called
+// before any such interpolation happens.
+func isValidConnectionName(name string) bool {
+	return validConnectionNamePattern.MatchString(name)
+}
+
 func defaultConnectionsFile() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -31,6 +49,10 @@ func defaultConnectionsFile() string {
 // shelling out to zsh and sourcing the real connections file, so this stays
 // in lockstep with the `mgo` shell function.
 func ResolveConnection(name string) (Connection, error) {
+	if !isValidConnectionName(name) {
+		return Connection{}, fmt.Errorf("nombre de conexión inválido %q: solo se permiten letras, números, guiones y guiones bajos", name)
+	}
+
 	script := fmt.Sprintf(
 		`source %q; echo "${MONGO_CONNECTIONS[%s]}"; echo "${MONGO_CONNECTION_COLORS[%s]}"`,
 		connectionsFile, name, name,

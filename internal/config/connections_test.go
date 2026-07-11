@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"sort"
 	"testing"
 )
@@ -44,6 +46,41 @@ func TestResolveConnection_NotFound(t *testing.T) {
 	_, err := ResolveConnection("nope")
 	if err == nil {
 		t.Fatal("expected an error for an unknown connection name, got nil")
+	}
+}
+
+func TestResolveConnection_RejectsShellInjectionAttempt(t *testing.T) {
+	withConnectionsFile(t, "testdata/basic.sh")
+
+	marker := filepath.Join(t.TempDir(), "lazymongo-pwned")
+	malicious := `qa]}"; touch ` + marker + `; echo "`
+
+	_, err := ResolveConnection(malicious)
+	if err == nil {
+		t.Fatal("expected an error for a malicious connection name, got nil")
+	}
+
+	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
+		t.Fatalf("injection executed: marker file was created at %s", marker)
+	}
+}
+
+func TestResolveConnection_ValidNamesStillWork(t *testing.T) {
+	withConnectionsFile(t, "testdata/basic.sh")
+
+	for _, name := range []string{"qa", "movatec-prod", "movatec_prod", "QA123"} {
+		if !isValidConnectionName(name) {
+			t.Fatalf("expected %q to be recognized as a valid connection name", name)
+		}
+	}
+
+	conn, err := ResolveConnection("qa")
+	if err != nil {
+		t.Fatalf("unexpected error resolving valid name %q: %v", "qa", err)
+	}
+	want := Connection{Name: "qa", URI: "mongodb://localhost:27017/test", Color: "verde"}
+	if conn != want {
+		t.Fatalf("got %+v, want %+v", conn, want)
 	}
 }
 
