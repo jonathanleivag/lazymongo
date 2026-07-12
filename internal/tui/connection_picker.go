@@ -46,10 +46,14 @@ func (f connectionForm) update(msg tea.KeyMsg) connectionForm {
 
 	switch msg.Type {
 	case tea.KeyBackspace:
-		if f.field == 0 && len(f.name) > 0 {
-			f.name = f.name[:len(f.name)-1]
-		} else if f.field == 1 && len(f.uri) > 0 {
-			f.uri = f.uri[:len(f.uri)-1]
+		if f.field == 0 {
+			if r := []rune(f.name); len(r) > 0 {
+				f.name = string(r[:len(r)-1])
+			}
+		} else if f.field == 1 {
+			if r := []rune(f.uri); len(r) > 0 {
+				f.uri = string(r[:len(r)-1])
+			}
 		}
 	case tea.KeyRunes:
 		text := string(msg.Runes)

@@ -46,8 +46,8 @@ func (m docListModel) Update(msg tea.Msg) (docListModel, tea.Cmd) {
 			m.filtering = false
 			m.filter = ""
 		case tea.KeyBackspace:
-			if len(m.filter) > 0 {
-				m.filter = m.filter[:len(m.filter)-1]
+			if r := []rune(m.filter); len(r) > 0 {
+				m.filter = string(r[:len(r)-1])
 			}
 		case tea.KeyRunes:
 			m.filter += string(keyMsg.Runes)

@@ -33,10 +33,11 @@ type RootModel struct {
 	view      viewID
 	prevViews []viewID
 
-	conn config.Connection
-	db   string
-	coll string
-	page int64
+	conn   config.Connection
+	db     string
+	coll   string
+	page   int64
+	filter bson.M
 
 	connPicker connectionPickerModel
 	dbList     listModel
@@ -75,6 +76,15 @@ func NewRootModel(client mongo.Client, resolved *config.Connection) RootModel {
 		}
 	}
 	return m
+}
+
+// currentFilter returns the currently active document filter, defaulting to
+// an empty (match-everything) filter when none has been set.
+func (m RootModel) currentFilter() bson.M {
+	if m.filter != nil {
+		return m.filter
+	}
+	return bson.M{}
 }
 
 func (m RootModel) pushView(v viewID) RootModel {
@@ -289,7 +299,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.popView()
 		return m, func() tea.Msg {
 			err := client.DeleteOne(context.Background(), db, coll, id)
-			return documentsLoadedMsg{Err: err}
+			return docWriteCompletedMsg{Err: err}
 		}
 
 	case fieldUpdateConfirmedMsg:
@@ -298,7 +308,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.popView()
 		return m, func() tea.Msg {
 			err := client.UpdateField(context.Background(), db, coll, id, field, value)
-			return documentsLoadedMsg{Err: err}
+			return docWriteCompletedMsg{Err: err}
 		}
 
 	case insertRequestedMsg:
@@ -342,7 +352,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.pendingDoc = nil
-		return m, m.loadDocuments(bson.M{})
+		return m, m.loadDocuments(m.currentFilter())
 
 	case indexWriteCompletedMsg:
 		if msg.Err != nil {
@@ -391,6 +401,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if chosen, ok := translated.(collectionChosenMsg); ok {
 					m.coll = chosen.Name
 					m.page = 0
+					m.filter = nil
 					return m, m.loadDocuments(bson.M{})
 				}
 			}
@@ -402,7 +413,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch out := cmd().(type) {
 			case pageChangedMsg:
 				m.page = out.Page
-				return m, m.loadDocuments(bson.M{})
+				return m, m.loadDocuments(m.currentFilter())
 			case filterSubmittedMsg:
 				m.page = 0
 				var filter bson.M
@@ -410,6 +421,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.err = fmt.Errorf("filtro inválido: %w", err)
 					return m, nil
 				}
+				m.filter = filter
 				return m, m.loadDocuments(filter)
 			case documentChosenMsg:
 				m.docDetail = newDocDetailModel(out.Doc)
@@ -454,6 +466,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !result.Confirmed {
 				m.pendingDoc = nil
 				m.pendingIndexKeysJSON = ""
+				m.pendingIndexUnique = false
 				return m, nil
 			}
 			return m.executePendingWrite()

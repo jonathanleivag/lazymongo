@@ -67,8 +67,8 @@ func (m idxListModel) Update(msg tea.Msg) (idxListModel, tea.Cmd) {
 			} else if m.createField == 0 {
 				switch keyMsg.Type {
 				case tea.KeyBackspace:
-					if len(m.createKeys) > 0 {
-						m.createKeys = m.createKeys[:len(m.createKeys)-1]
+					if r := []rune(m.createKeys); len(r) > 0 {
+						m.createKeys = string(r[:len(r)-1])
 					}
 				case tea.KeyRunes:
 					m.createKeys += string(keyMsg.Runes)
