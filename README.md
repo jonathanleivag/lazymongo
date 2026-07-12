@@ -19,7 +19,7 @@ Personal TUI for browsing/editing MongoDB, reusing `~/.config/mongo-connections.
 | Key | Action |
 |---|---|
 | `1`-`5` | jump to a panel (Status/Databases/Collections/Indexes/Conexiones) |
-| `Tab` | jump to the Documents panel |
+| `Tab` | jump to Documents panel (or to Indexes, if already on Documents) |
 | `j`/`k`, arrows | move within the focused panel |
 | `Enter` | view document / connect (in Conexiones) / enter |
 | `Esc` | close the active popup |

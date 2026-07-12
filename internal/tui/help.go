@@ -3,7 +3,7 @@ package tui
 const helpText = `lazymongo — atajos
 
 1-5            saltar a un panel (Status/Databases/Collections/Indexes/Conexiones)
-Tab            saltar al panel de Documentos
+Tab            saltar a Documentos (o a Indexes si ya estás en Documentos)
 j/k, flechas   moverse dentro del panel enfocado
 Enter          ver documento / conectar (en Conexiones) / entrar
 Esc            cerrar el popup activo
