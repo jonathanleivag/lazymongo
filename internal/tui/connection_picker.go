@@ -78,7 +78,6 @@ type connectionPickerModel struct {
 	list     listModel
 	creating bool
 	form     connectionForm
-	err      error
 }
 
 func newConnectionPickerModel(conns []config.Connection) connectionPickerModel {
@@ -87,15 +86,6 @@ func newConnectionPickerModel(conns []config.Connection) connectionPickerModel {
 		items[i] = listItem{ID: c.Name, Label: c.Name, Color: c.Color}
 	}
 	return connectionPickerModel{list: newListModel("Conexiones", items, true)}
-}
-
-func (m connectionPickerModel) connectionByName(name string, conns []config.Connection) config.Connection {
-	for _, c := range conns {
-		if c.Name == name {
-			return c
-		}
-	}
-	return config.Connection{}
 }
 
 func (m connectionPickerModel) Update(msg tea.Msg) (connectionPickerModel, tea.Cmd) {
