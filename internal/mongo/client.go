@@ -166,3 +166,47 @@ func (c *RealClient) DeleteOne(ctx context.Context, db, coll string, id any) err
 	}
 	return nil
 }
+
+func (c *RealClient) ListIndexes(ctx context.Context, db, coll string) ([]IndexInfo, error) {
+	cursor, err := c.client.Database(db).Collection(coll).Indexes().List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listando índices de %s.%s: %w", db, coll, err)
+	}
+	defer cursor.Close(ctx)
+
+	var infos []IndexInfo
+	for cursor.Next(ctx) {
+		var raw struct {
+			Name   string `bson:"name"`
+			Key    bson.M `bson:"key"`
+			Unique bool   `bson:"unique"`
+		}
+		if err := cursor.Decode(&raw); err != nil {
+			return nil, fmt.Errorf("decodificando índice de %s.%s: %w", db, coll, err)
+		}
+		infos = append(infos, IndexInfo{Name: raw.Name, Key: raw.Key, Unique: raw.Unique})
+	}
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("iterando índices de %s.%s: %w", db, coll, err)
+	}
+	return infos, nil
+}
+
+func (c *RealClient) CreateIndex(ctx context.Context, db, coll string, keys bson.D, unique bool) (string, error) {
+	model := driver.IndexModel{
+		Keys:    keys,
+		Options: options.Index().SetUnique(unique),
+	}
+	name, err := c.client.Database(db).Collection(coll).Indexes().CreateOne(ctx, model)
+	if err != nil {
+		return "", fmt.Errorf("creando índice en %s.%s: %w", db, coll, err)
+	}
+	return name, nil
+}
+
+func (c *RealClient) DropIndex(ctx context.Context, db, coll, name string) error {
+	if err := c.client.Database(db).Collection(coll).Indexes().DropOne(ctx, name); err != nil {
+		return fmt.Errorf("borrando índice %q en %s.%s: %w", name, db, coll, err)
+	}
+	return nil
+}

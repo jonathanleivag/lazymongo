@@ -103,3 +103,57 @@ func TestRealClient_DocumentCRUD(t *testing.T) {
 		t.Fatalf("expected count 0 after delete, got %d", count)
 	}
 }
+
+func TestRealClient_Indexes(t *testing.T) {
+	uri := os.Getenv("LAZYMONGO_TEST_URI")
+	if uri == "" {
+		t.Skip("LAZYMONGO_TEST_URI not set; run via scripts/test-integration.sh")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client := NewRealClient()
+	if err := client.Connect(ctx, uri); err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+	defer client.Disconnect(ctx)
+
+	const db, coll = "lazymongo_test", "indexed_widgets"
+	_, _ = client.InsertOne(ctx, db, coll, bson.M{"sku": "abc"})
+
+	name, err := client.CreateIndex(ctx, db, coll, bson.D{{Key: "sku", Value: 1}}, true)
+	if err != nil {
+		t.Fatalf("CreateIndex failed: %v", err)
+	}
+	if name == "" {
+		t.Fatal("expected a non-empty index name")
+	}
+
+	indexes, err := client.ListIndexes(ctx, db, coll)
+	if err != nil {
+		t.Fatalf("ListIndexes failed: %v", err)
+	}
+	found := false
+	for _, idx := range indexes {
+		if idx.Name == name {
+			found = true
+			if !idx.Unique {
+				t.Fatalf("expected index %q to be unique", name)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("created index %q not found in ListIndexes result: %+v", name, indexes)
+	}
+
+	if err := client.DropIndex(ctx, db, coll, name); err != nil {
+		t.Fatalf("DropIndex failed: %v", err)
+	}
+	indexes, _ = client.ListIndexes(ctx, db, coll)
+	for _, idx := range indexes {
+		if idx.Name == name {
+			t.Fatalf("index %q still present after DropIndex", name)
+		}
+	}
+}
