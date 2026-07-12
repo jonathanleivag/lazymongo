@@ -18,18 +18,23 @@ Personal TUI for browsing/editing MongoDB, reusing `~/.config/mongo-connections.
 
 | Key | Action |
 |---|---|
-| `j`/`k`, arrows | move |
-| `Enter` | drill down / select |
-| `Esc`, `h` | go back |
+| `1`-`5` | jump to a panel (Status/Databases/Collections/Indexes/Conexiones) |
+| `Tab` | jump to the Documents panel |
+| `j`/`k`, arrows | move within the focused panel |
+| `Enter` | view document / connect (in Conexiones) / enter |
+| `Esc` | close the active popup |
 | `/` | filter documents |
-| `Tab` | switch Documents/Indexes |
 | `n`/`p` | next/previous page |
 | `i`, `a` | insert document / create connection or index |
 | `e` | edit field inline |
 | `E` | edit full document in `$EDITOR` |
 | `d`, `x` | delete (always confirms) |
 | `?` | help |
-| `q`, `Ctrl+c` | quit |
+| `Ctrl+c` | quit |
+
+Moving the cursor in the Databases/Collections panels immediately loads the
+next panel's contents (live preview) — no `Enter` needed. Connecting from the
+Conexiones panel still requires `Enter`, since it's a real network connect.
 
 ## Testing
 

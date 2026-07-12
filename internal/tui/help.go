@@ -2,12 +2,13 @@ package tui
 
 const helpText = `lazymongo — atajos
 
-j/k, flechas   moverse
-Enter          entrar / seleccionar
-Esc, h         volver un nivel
+1-5            saltar a un panel (Status/Databases/Collections/Indexes/Conexiones)
+Tab            saltar al panel de Documentos
+j/k, flechas   moverse dentro del panel enfocado
+Enter          ver documento / conectar (en Conexiones) / entrar
+Esc            cerrar el popup activo
 /              filtrar (en Documentos)
-Tab            alternar Documentos/Índices
-n/p            página siguiente/anterior
+n/p            página siguiente/anterior (en Documentos)
 i, a           insertar documento / crear conexión o índice
 e              editar campo (en detalle de documento)
 E              editar documento completo en $EDITOR
