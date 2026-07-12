@@ -58,7 +58,8 @@ type RootModel struct {
 }
 
 // NewRootModel builds the root model. If resolved is nil, the app starts on
-// the connection picker; otherwise it connects immediately.
+// the connection picker, populated with the user's saved connections;
+// otherwise it connects immediately.
 func NewRootModel(client mongo.Client, resolved *config.Connection) RootModel {
 	m := RootModel{client: client}
 	if resolved != nil {
@@ -66,6 +67,12 @@ func NewRootModel(client mongo.Client, resolved *config.Connection) RootModel {
 		m.view = viewDatabaseList
 	} else {
 		m.view = viewConnectionPicker
+		conns, err := config.ListConnections()
+		if err != nil {
+			m.err = err
+		} else {
+			m.connPicker = newConnectionPickerModel(conns)
+		}
 	}
 	return m
 }

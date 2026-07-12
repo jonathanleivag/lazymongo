@@ -272,6 +272,51 @@ func TestRootModel_CtrlCStillQuitsOutsideTextEntry(t *testing.T) {
 	}
 }
 
+// TestRootModel_NoArgLaunchPopulatesConnectionPickerFromConfig guards against
+// the connection picker staying a permanently-empty zero-value model when
+// NewRootModel is called with resolved == nil (the primary, no-CLI-args
+// launch path). internal/config's connectionsFile var is unexported, so it
+// can't be pointed at a fixture from this package (confirmed: no exported
+// setter exists on internal/config, unlike its own withConnectionsFile test
+// helper which lives inside the config package itself). Instead, this test
+// treats config.ListConnections() as the source of truth — whatever it
+// returns on the machine running the test (the real ~/.config/mongo-
+// connections.sh, empty or not) — and asserts NewRootModel's picker matches
+// it exactly. Before the fix, m.connPicker was always a zero-value
+// connectionPickerModel{} (empty list), so this test fails whenever the
+// machine running it has at least one real saved connection, and the
+// fix makes it pass by construction on any machine.
+func TestRootModel_NoArgLaunchPopulatesConnectionPickerFromConfig(t *testing.T) {
+	wantConns, err := config.ListConnections()
+	if err != nil {
+		t.Fatalf("test precondition failed: config.ListConnections() returned an error: %v", err)
+	}
+
+	fake := mongo.NewFakeClient()
+	m := NewRootModel(fake, nil)
+
+	if m.view != viewConnectionPicker {
+		t.Fatalf("expected viewConnectionPicker, got %v", m.view)
+	}
+	if m.err != nil {
+		t.Fatalf("expected no error, got %v", m.err)
+	}
+	if len(m.connPicker.list.Items) != len(wantConns) {
+		t.Fatalf("expected picker to have %d connections (from config.ListConnections()), got %d: %+v",
+			len(wantConns), len(m.connPicker.list.Items), m.connPicker.list.Items)
+	}
+	if !m.connPicker.list.CanCreate {
+		t.Fatal("expected picker to allow creating a new connection")
+	}
+
+	view := m.View()
+	for _, c := range wantConns {
+		if !strings.Contains(view, c.Name) {
+			t.Fatalf("expected picker view to contain connection name %q (from real config.ListConnections()), got view:\n%s", c.Name, view)
+		}
+	}
+}
+
 func TestRootModel_DropIndexWritesImmediately(t *testing.T) {
 	root, fake := rootModelInDocList(t)
 	fake.Indexes["shop"] = map[string][]mongo.IndexInfo{
