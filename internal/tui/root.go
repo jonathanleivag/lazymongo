@@ -436,6 +436,10 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch m.focus {
 	case panelDatabases:
+		// listModel.Update still emits itemSelectedMsg on Enter, but we intentionally
+		// don't handle it here: cursor movement above already cascades into loading
+		// collections for the highlighted database, so Enter has nothing left to do.
+		// Do not "fix" this into an itemSelectedMsg handler.
 		before := m.dbList.Cursor
 		var listCmd tea.Cmd
 		m.dbList, listCmd = m.dbList.Update(msg)
@@ -446,6 +450,9 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, listCmd
 
 	case panelCollections:
+		// Same as panelDatabases above: Enter is a silent no-op by design, since
+		// cursor movement already cascades into loading indexes/documents for the
+		// highlighted collection.
 		before := m.collList.Cursor
 		var listCmd tea.Cmd
 		m.collList, listCmd = m.collList.Update(msg)

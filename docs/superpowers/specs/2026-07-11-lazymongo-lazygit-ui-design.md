@@ -62,10 +62,14 @@ the very bottom. All panels are drawn at all times — nothing is full-screen.
 ## Startup
 
 The full 5-panel layout renders immediately on launch (empty where there's no
-data yet), with focus starting on `[5] Conexiones`. Selecting a connection
-there connects and cascades: `[2]` populates with databases; selecting one
-populates `[3]`; selecting a collection populates `[4]` and `[0]`. No separate
-"connection picker" screen — it's just panel `[5]`, always reachable.
+data yet). Focus starts on `[2] Databases` when launched with a connection
+name argument (e.g. `lazymongo qa`), since the connection is already known
+and there's no reason to force a `Conexiones` detour; focus starts on
+`[5] Conexiones` only when launched with no argument, so the user can pick a
+saved connection. Selecting a connection in `[5]` connects and cascades:
+`[2]` populates with databases; selecting one populates `[3]`; selecting a
+collection populates `[4]` and `[0]`. No separate "connection picker"
+screen — it's just panel `[5]`, always reachable.
 
 ## Focus and navigation
 
