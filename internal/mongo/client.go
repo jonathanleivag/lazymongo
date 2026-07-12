@@ -95,3 +95,74 @@ func (c *RealClient) ListCollections(ctx context.Context, db string) ([]string, 
 	}
 	return names, nil
 }
+
+func (c *RealClient) Find(ctx context.Context, db, coll string, filter bson.M, skip, limit int64) ([]bson.M, error) {
+	opts := options.Find().SetSkip(skip)
+	if limit > 0 {
+		opts.SetLimit(limit)
+	}
+	cursor, err := c.client.Database(db).Collection(coll).Find(ctx, filter, opts)
+	if err != nil {
+		return nil, fmt.Errorf("buscando documentos en %s.%s: %w", db, coll, err)
+	}
+	defer cursor.Close(ctx)
+
+	var results []bson.M
+	if err := cursor.All(ctx, &results); err != nil {
+		return nil, fmt.Errorf("leyendo resultados de %s.%s: %w", db, coll, err)
+	}
+	return results, nil
+}
+
+func (c *RealClient) CountDocuments(ctx context.Context, db, coll string, filter bson.M) (int64, error) {
+	count, err := c.client.Database(db).Collection(coll).CountDocuments(ctx, filter)
+	if err != nil {
+		return 0, fmt.Errorf("contando documentos en %s.%s: %w", db, coll, err)
+	}
+	return count, nil
+}
+
+func (c *RealClient) InsertOne(ctx context.Context, db, coll string, doc bson.M) (any, error) {
+	result, err := c.client.Database(db).Collection(coll).InsertOne(ctx, doc)
+	if err != nil {
+		return nil, fmt.Errorf("insertando documento en %s.%s: %w", db, coll, err)
+	}
+	return result.InsertedID, nil
+}
+
+func (c *RealClient) UpdateField(ctx context.Context, db, coll string, id any, field string, value any) error {
+	filter := bson.M{"_id": id}
+	update := bson.M{"$set": bson.M{field: value}}
+	result, err := c.client.Database(db).Collection(coll).UpdateOne(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("actualizando campo %q en %s.%s: %w", field, db, coll, err)
+	}
+	if result.MatchedCount == 0 {
+		return fmt.Errorf("documento %v no encontrado en %s.%s", id, db, coll)
+	}
+	return nil
+}
+
+func (c *RealClient) ReplaceOne(ctx context.Context, db, coll string, id any, doc bson.M) error {
+	filter := bson.M{"_id": id}
+	result, err := c.client.Database(db).Collection(coll).ReplaceOne(ctx, filter, doc)
+	if err != nil {
+		return fmt.Errorf("reemplazando documento en %s.%s: %w", db, coll, err)
+	}
+	if result.MatchedCount == 0 {
+		return fmt.Errorf("documento %v no encontrado en %s.%s", id, db, coll)
+	}
+	return nil
+}
+
+func (c *RealClient) DeleteOne(ctx context.Context, db, coll string, id any) error {
+	filter := bson.M{"_id": id}
+	result, err := c.client.Database(db).Collection(coll).DeleteOne(ctx, filter)
+	if err != nil {
+		return fmt.Errorf("borrando documento en %s.%s: %w", db, coll, err)
+	}
+	if result.DeletedCount == 0 {
+		return fmt.Errorf("documento %v no encontrado en %s.%s", id, db, coll)
+	}
+	return nil
+}
