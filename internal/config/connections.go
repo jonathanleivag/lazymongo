@@ -37,6 +37,14 @@ func isValidConnectionName(name string) bool {
 	return validConnectionNamePattern.MatchString(name)
 }
 
+// SetConnectionsFileForTesting points the connections file at a fixture path for tests
+// and returns a restore function to call via t.Cleanup. Not for production use.
+func SetConnectionsFileForTesting(path string) (restore func()) {
+	old := connectionsFile
+	connectionsFile = path
+	return func() { connectionsFile = old }
+}
+
 func defaultConnectionsFile() string {
 	home, err := os.UserHomeDir()
 	if err != nil {

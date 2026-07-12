@@ -275,21 +275,25 @@ func TestRootModel_CtrlCStillQuitsOutsideTextEntry(t *testing.T) {
 // TestRootModel_NoArgLaunchPopulatesConnectionPickerFromConfig guards against
 // the connection picker staying a permanently-empty zero-value model when
 // NewRootModel is called with resolved == nil (the primary, no-CLI-args
-// launch path). internal/config's connectionsFile var is unexported, so it
-// can't be pointed at a fixture from this package (confirmed: no exported
-// setter exists on internal/config, unlike its own withConnectionsFile test
-// helper which lives inside the config package itself). Instead, this test
-// treats config.ListConnections() as the source of truth — whatever it
-// returns on the machine running the test (the real ~/.config/mongo-
-// connections.sh, empty or not) — and asserts NewRootModel's picker matches
-// it exactly. Before the fix, m.connPicker was always a zero-value
-// connectionPickerModel{} (empty list), so this test fails whenever the
-// machine running it has at least one real saved connection, and the
-// fix makes it pass by construction on any machine.
+// launch path). internal/config's connectionsFile var is unexported, so this
+// test points it at a fixture via the exported config.SetConnectionsFileForTesting
+// test helper (mirrors the httptest style: a small exported setter meant only
+// for tests) instead of reading the real machine's ~/.config/mongo-
+// connections.sh. This keeps the test hermetic: it asserts against the exact
+// connections defined in internal/config/testdata/basic.sh ("prod", "qa"),
+// not whatever happens to exist on the machine running it. Before the fix,
+// m.connPicker was always a zero-value connectionPickerModel{} (empty list),
+// so this test would fail regardless of which fixture is used.
 func TestRootModel_NoArgLaunchPopulatesConnectionPickerFromConfig(t *testing.T) {
+	restore := config.SetConnectionsFileForTesting("../config/testdata/basic.sh")
+	t.Cleanup(restore)
+
 	wantConns, err := config.ListConnections()
 	if err != nil {
 		t.Fatalf("test precondition failed: config.ListConnections() returned an error: %v", err)
+	}
+	if len(wantConns) != 2 {
+		t.Fatalf("test precondition failed: expected fixture to define 2 connections, got %d: %+v", len(wantConns), wantConns)
 	}
 
 	fake := mongo.NewFakeClient()
@@ -302,7 +306,7 @@ func TestRootModel_NoArgLaunchPopulatesConnectionPickerFromConfig(t *testing.T) 
 		t.Fatalf("expected no error, got %v", m.err)
 	}
 	if len(m.connPicker.list.Items) != len(wantConns) {
-		t.Fatalf("expected picker to have %d connections (from config.ListConnections()), got %d: %+v",
+		t.Fatalf("expected picker to have %d connections (from fixture testdata/basic.sh), got %d: %+v",
 			len(wantConns), len(m.connPicker.list.Items), m.connPicker.list.Items)
 	}
 	if !m.connPicker.list.CanCreate {
@@ -310,9 +314,9 @@ func TestRootModel_NoArgLaunchPopulatesConnectionPickerFromConfig(t *testing.T) 
 	}
 
 	view := m.View()
-	for _, c := range wantConns {
-		if !strings.Contains(view, c.Name) {
-			t.Fatalf("expected picker view to contain connection name %q (from real config.ListConnections()), got view:\n%s", c.Name, view)
+	for _, name := range []string{"qa", "prod"} {
+		if !strings.Contains(view, name) {
+			t.Fatalf("expected picker view to contain connection name %q (from fixture testdata/basic.sh), got view:\n%s", name, view)
 		}
 	}
 }
