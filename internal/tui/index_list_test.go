@@ -1,0 +1,59 @@
+package tui
+
+import (
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/jonathanleivag/lazymongo/internal/mongo"
+	"go.mongodb.org/mongo-driver/v2/bson"
+)
+
+func sampleIndexes() []mongo.IndexInfo {
+	return []mongo.IndexInfo{
+		{Name: "_id_", Key: bson.M{"_id": 1}, Unique: true},
+		{Name: "email_1", Key: bson.M{"email": 1}, Unique: true},
+	}
+}
+
+func TestIdxListModel_DSendsIndexDropConfirmedFlow(t *testing.T) {
+	m := newIdxListModel(sampleIndexes())
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")}) // -> email_1
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	if !m.confirmingDrop {
+		t.Fatal("expected idxListModel to enter confirmingDrop state after 'd'")
+	}
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	if cmd == nil {
+		t.Fatal("expected a command after confirming drop")
+	}
+	dropped, ok := cmd().(indexDropConfirmedMsg)
+	if !ok || dropped.Name != "email_1" {
+		t.Fatalf("expected indexDropConfirmedMsg{Name:\"email_1\"}, got %#v", cmd())
+	}
+}
+
+func TestIdxListModel_AOpensCreateFormAndEnterSubmits(t *testing.T) {
+	m := newIdxListModel(nil)
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	if !m.creating {
+		t.Fatal("expected idxListModel to enter creating state after 'a'")
+	}
+
+	for _, r := range `{"email":1}` {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})                       // move to unique toggle
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")}) // toggle unique on
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected a command on submitting the create-index form")
+	}
+	submitted, ok := cmd().(indexCreateSubmittedMsg)
+	if !ok || submitted.KeysJSON != `{"email":1}` || !submitted.Unique {
+		t.Fatalf("expected indexCreateSubmittedMsg{KeysJSON:'{\"email\":1}',Unique:true}, got %#v", cmd())
+	}
+}
