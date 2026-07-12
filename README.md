@@ -43,3 +43,31 @@ Conexiones panel still requires `Enter`, since it's a real network connect.
 
 Integration tests never run against `qa`/`prod` — only a throwaway
 `mongo:7` container on port 27018.
+
+## Manual smoke test against qa
+
+**Note:** the UI changed from a full-screen drill-down to a persistent
+5-panel + Documents-panel layout (see the design spec
+`docs/superpowers/specs/2026-07-11-lazymongo-lazygit-ui-design.md`). Redo this
+checklist even if you validated the drill-down version before — panel focus,
+popups, and live-preview cascading are all new interaction paths.
+
+Run: `go build -o lazymongo . && ./lazymongo qa`
+
+Walk through, confirming each works as expected:
+
+- [ ] All 5 side panels + Documents panel render on launch, Status panel shows `qa` in its assigned color
+- [ ] `2` focuses Databases; `j`/`k` moves the cursor; Collections panel live-updates as you move
+- [ ] `3` focuses Collections; moving the cursor live-updates Indexes and Documents
+- [ ] `Tab` focuses Documents; `/` filters, `n`/`p` paginate
+- [ ] `Enter` on a document opens the detail popup; `Esc` closes it, panels underneath are unchanged
+- [ ] `e` on a field in the detail popup opens the inline editor; confirming actually updates the field (verify with `mongosh`/`mgo qa` afterward)
+- [ ] `E` opens the full document in `nvim`; saving+exiting shows the confirm popup, then replaces it
+- [ ] `i` inserts a new document after confirmation
+- [ ] `d` on a document opens the delete confirmation popup
+- [ ] `4` focuses Indexes; `a` opens the create-index popup, `d` drops one (both confirm first)
+- [ ] `5` focuses Conexiones; `Enter` on a different saved connection reconnects
+- [ ] `?` opens/closes help; `Ctrl+c` quits cleanly
+- [ ] The command log shows connect/filter/write history
+
+Only after this passes should `prod` be used with `lazymongo`.
