@@ -166,12 +166,34 @@ func (m RootModel) loadIndexes() tea.Cmd {
 type docWriteCompletedMsg struct{ Err error }
 type indexWriteCompletedMsg struct{ Err error }
 
+// inTextEntry reports whether the current view is in an active text-entry
+// sub-state, where printable keys like "q" or "?" must be typed literally
+// rather than treated as global shortcuts.
+func (m RootModel) inTextEntry() bool {
+	switch {
+	case m.view == viewConnectionPicker && m.connPicker.creating:
+		return true
+	case m.view == viewDocumentList && m.docList.filtering:
+		return true
+	case m.view == viewFieldEdit && !m.fieldEdit.confirming:
+		return true
+	case m.view == viewIndexList && m.idxList.creating:
+		return true
+	}
+	return false
+}
+
 func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
-		switch keyMsg.String() {
-		case "ctrl+c", "q":
+		if m.err != nil {
+			m.err = nil
+			return m, nil
+		}
+		switch keyMsg.Type {
+		case tea.KeyCtrlC:
 			return m, tea.Quit
-		case "?":
+		}
+		if keyMsg.String() == "?" && !m.inTextEntry() {
 			if m.view != viewHelp {
 				m = m.pushView(viewHelp)
 				return m, nil

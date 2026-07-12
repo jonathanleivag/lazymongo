@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -213,6 +214,61 @@ func TestRootModel_CreateIndexGoesThroughConfirmationBeforeWriting(t *testing.T)
 
 	if len(fake.Indexes["shop"]["orders"]) != 1 {
 		t.Fatalf("expected 1 index created, got %d", len(fake.Indexes["shop"]["orders"]))
+	}
+}
+
+func TestRootModel_ErrorScreenDismissedByKeypress(t *testing.T) {
+	m, _ := newTestRootModel()
+	m.err = fmt.Errorf("boom")
+
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	root := model.(RootModel)
+
+	if root.err != nil {
+		t.Fatalf("expected err to be cleared after keypress, got %v", root.err)
+	}
+}
+
+func TestRootModel_ErrorScreenNotClearedByNonKeyMsg(t *testing.T) {
+	m, _ := newTestRootModel()
+	m.err = fmt.Errorf("boom")
+
+	// a non-key message (e.g. an in-flight async command's result) should
+	// not dismiss the error screen
+	model, _ := m.Update(documentsLoadedMsg{Docs: nil, Total: 0})
+	root := model.(RootModel)
+
+	if root.err == nil {
+		t.Fatal("expected err to remain set after a non-key message")
+	}
+}
+
+func TestRootModel_QDoesNotQuitWhileCreatingConnection(t *testing.T) {
+	m, _ := newTestRootModel()
+	m.view = viewConnectionPicker
+	m.connPicker.creating = true
+
+	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	root := model.(RootModel)
+
+	if root.view != viewConnectionPicker {
+		t.Fatalf("expected to stay on viewConnectionPicker, got %v", root.view)
+	}
+	if cmd != nil {
+		if _, isQuit := cmd().(tea.QuitMsg); isQuit {
+			t.Fatal("expected 'q' to NOT quit the app while creating a connection")
+		}
+	}
+}
+
+func TestRootModel_CtrlCStillQuitsOutsideTextEntry(t *testing.T) {
+	m, _ := newTestRootModel()
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatal("expected a quit command on Ctrl+C")
+	}
+	if _, isQuit := cmd().(tea.QuitMsg); !isQuit {
+		t.Fatal("expected Ctrl+C to produce tea.Quit")
 	}
 }
 

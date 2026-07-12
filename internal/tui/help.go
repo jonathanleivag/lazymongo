@@ -13,7 +13,7 @@ e              editar campo (en detalle de documento)
 E              editar documento completo en $EDITOR
 d, x           borrar (siempre pide confirmación)
 ?              esta ayuda
-q, Ctrl+c      salir
+Ctrl+c         salir
 
 Presiona cualquier tecla para cerrar esta ayuda.`
 
