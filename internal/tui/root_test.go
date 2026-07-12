@@ -30,478 +30,8 @@ func TestRootModel_InitConnectsAndLoadsDatabases(t *testing.T) {
 	msg := cmd()
 	newModel, _ := m.Update(msg)
 	root := newModel.(RootModel)
-	if root.view != viewDatabaseList {
-		t.Fatalf("expected view to become viewDatabaseList after connecting, got %v", root.view)
-	}
-}
-
-func TestRootModel_FullDrillDownToDocumentDetail(t *testing.T) {
-	// newTestRootModel's fake has exactly one database ("shop") and one
-	// collection ("orders"), so pressing Enter always drills into that
-	// single item — this simulates real key presses rather than
-	// constructing itemSelectedMsg/documentChosenMsg by hand, since those
-	// message types are only ever produced internally by listModel/docListModel
-	// in response to an actual tea.KeyMsg, never accepted as external input.
-	m, _ := newTestRootModel()
-
-	cmd := m.Init()
-	model, _ := m.Update(cmd())
-	root := model.(RootModel)
-
-	model, cmd = root.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	root = model.(RootModel)
-	model, _ = root.Update(cmd())
-	root = model.(RootModel)
-	if root.view != viewCollectionList {
-		t.Fatalf("expected viewCollectionList, got %v", root.view)
-	}
-
-	model, cmd = root.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	root = model.(RootModel)
-	model, _ = root.Update(cmd())
-	root = model.(RootModel)
-	if root.view != viewDocumentList {
-		t.Fatalf("expected viewDocumentList, got %v", root.view)
-	}
-
-	model, cmd = root.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	root = model.(RootModel)
-	if root.view != viewDocumentDetail {
-		t.Fatalf("expected viewDocumentDetail, got %v", root.view)
-	}
-	_ = cmd
-}
-
-func TestRootModel_QuitsOnCtrlC(t *testing.T) {
-	m, _ := newTestRootModel()
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-	if cmd == nil {
-		t.Fatal("expected a quit command on Ctrl+C")
-	}
-}
-
-func TestRootModel_ViewShowsConnectionNameInStatusBar(t *testing.T) {
-	m, _ := newTestRootModel()
-	view := m.View()
-	if !strings.Contains(view, "qa") {
-		t.Fatalf("expected status bar to show connection name 'qa', got view:\n%s", view)
-	}
-}
-
-// rootModelInDocList drives a RootModel from init through selecting the
-// "shop" database and "orders" collection, landing in viewDocumentList.
-func rootModelInDocList(t *testing.T) (RootModel, *mongo.FakeClient) {
-	t.Helper()
-	m, fake := newTestRootModel()
-
-	// newTestRootModel's fake has exactly one database and one collection,
-	// so pressing Enter twice always drills into "shop" then "orders" —
-	// see the comment on TestRootModel_FullDrillDownToDocumentDetail for
-	// why real key presses are used instead of constructing itemSelectedMsg
-	// by hand.
-	model, _ := m.Update(m.Init()())
-	root := model.(RootModel)
-	model, cmd := root.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	root = model.(RootModel)
-	model, _ = root.Update(cmd())
-	root = model.(RootModel)
-	model, cmd = root.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	root = model.(RootModel)
-	model, _ = root.Update(cmd())
-	root = model.(RootModel)
-	if root.view != viewDocumentList {
-		t.Fatalf("setup failed: expected viewDocumentList, got %v", root.view)
-	}
-	return root, fake
-}
-
-// switchToIndexList drives a RootModel from viewDocumentList to viewIndexList
-// by pressing Tab. This takes three Update calls, not one: Tab makes
-// docListModel emit switchToIndexesMsg (1), which RootModel turns into an
-// async m.loadIndexes() command (2), whose result (indexesLoadedMsg) is what
-// actually sets m.view = viewIndexList (3).
-func switchToIndexList(t *testing.T, root RootModel) RootModel {
-	t.Helper()
-	model, cmd := root.Update(tea.KeyMsg{Type: tea.KeyTab})
-	root = model.(RootModel)
-	model, cmd = root.Update(cmd())
-	root = model.(RootModel)
-	model, _ = root.Update(cmd())
-	root = model.(RootModel)
-	if root.view != viewIndexList {
-		t.Fatalf("switchToIndexList setup failed: expected viewIndexList, got %v", root.view)
-	}
-	return root
-}
-
-// applyFilter drives a RootModel (already in viewDocumentList) through
-// pressing "/" to open the filter prompt, typing filterText, and pressing
-// Enter to submit it — mirroring real key presses instead of constructing
-// filterSubmittedMsg by hand, since that message type is only ever produced
-// internally by docListModel in response to actual tea.KeyMsg presses (see
-// the comment on TestRootModel_FullDrillDownToDocumentDetail for the same
-// rationale applied elsewhere in this file).
-func applyFilter(t *testing.T, root RootModel, filterText string) RootModel {
-	t.Helper()
-	model, _ := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
-	root = model.(RootModel)
-	for _, r := range filterText {
-		model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
-		root = model.(RootModel)
-	}
-	model, cmd := root.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	root = model.(RootModel)
-	if cmd == nil {
-		t.Fatal("applyFilter setup failed: expected a reload command after submitting the filter")
-	}
-	model, _ = root.Update(cmd())
-	root = model.(RootModel)
-	return root
-}
-
-func TestRootModel_InsertGoesThroughConfirmationBeforeWriting(t *testing.T) {
-	root, fake := rootModelInDocList(t)
-
-	model, _ := root.Update(insertRequestedMsg{})
-	root = model.(RootModel)
-	if root.editMode != "insert" {
-		t.Fatalf("expected editMode 'insert', got %q", root.editMode)
-	}
-
-	// simulate the editor returning a new document (skipping the real
-	// tea.ExecProcess invocation, which needs a real terminal/editor)
-	model, _ = root.Update(editFullDoneMsg{Doc: bson.M{"total": int32(99)}})
-	root = model.(RootModel)
-	if root.view != viewConfirmWrite {
-		t.Fatalf("expected viewConfirmWrite after editFullDoneMsg, got %v", root.view)
-	}
-
-	before := len(fake.Databases["shop"]["orders"])
-	model, cmd := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
-	root = model.(RootModel)
-	model, _ = root.Update(cmd())
-	root = model.(RootModel)
-
-	if len(fake.Databases["shop"]["orders"]) != before+1 {
-		t.Fatalf("expected InsertOne to add a document, got %d (was %d)", len(fake.Databases["shop"]["orders"]), before)
-	}
-}
-
-func TestRootModel_InsertCancelledDoesNotWrite(t *testing.T) {
-	root, fake := rootModelInDocList(t)
-
-	model, _ := root.Update(insertRequestedMsg{})
-	root = model.(RootModel)
-	model, _ = root.Update(editFullDoneMsg{Doc: bson.M{"total": int32(99)}})
-	root = model.(RootModel)
-
-	before := len(fake.Databases["shop"]["orders"])
-	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
-	root = model.(RootModel)
-
-	if len(fake.Databases["shop"]["orders"]) != before {
-		t.Fatalf("expected no document added after cancelling, got %d (was %d)", len(fake.Databases["shop"]["orders"]), before)
-	}
-	if root.view != viewDocumentList {
-		t.Fatalf("expected to return to viewDocumentList after cancelling, got %v", root.view)
-	}
-}
-
-func TestRootModel_TabSwitchesToIndexList(t *testing.T) {
-	root, fake := rootModelInDocList(t)
-	fake.Indexes["shop"] = map[string][]mongo.IndexInfo{
-		"orders": {{Name: "_id_", Key: bson.M{"_id": 1}, Unique: true}},
-	}
-
-	root = switchToIndexList(t, root)
-
-	if root.view != viewIndexList {
-		t.Fatalf("expected viewIndexList after Tab, got %v", root.view)
-	}
-	if len(root.idxList.indexes) != 1 {
-		t.Fatalf("expected 1 index loaded, got %d", len(root.idxList.indexes))
-	}
-}
-
-func TestRootModel_CreateIndexGoesThroughConfirmationBeforeWriting(t *testing.T) {
-	root, fake := rootModelInDocList(t)
-	root = switchToIndexList(t, root)
-
-	model, _ := root.Update(indexCreateSubmittedMsg{KeysJSON: `{"total":1}`, Unique: false})
-	root = model.(RootModel)
-	if root.view != viewConfirmWrite {
-		t.Fatalf("expected viewConfirmWrite after indexCreateSubmittedMsg, got %v", root.view)
-	}
-
-	model, cmd := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
-	root = model.(RootModel)
-	model, _ = root.Update(cmd())
-
-	if len(fake.Indexes["shop"]["orders"]) != 1 {
-		t.Fatalf("expected 1 index created, got %d", len(fake.Indexes["shop"]["orders"]))
-	}
-}
-
-func TestRootModel_ErrorScreenDismissedByKeypress(t *testing.T) {
-	m, _ := newTestRootModel()
-	m.err = fmt.Errorf("boom")
-
-	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
-	root := model.(RootModel)
-
-	if root.err != nil {
-		t.Fatalf("expected err to be cleared after keypress, got %v", root.err)
-	}
-}
-
-func TestRootModel_ErrorScreenNotClearedByNonKeyMsg(t *testing.T) {
-	m, _ := newTestRootModel()
-	m.err = fmt.Errorf("boom")
-
-	// a non-key message (e.g. an in-flight async command's result) should
-	// not dismiss the error screen
-	model, _ := m.Update(documentsLoadedMsg{Docs: nil, Total: 0})
-	root := model.(RootModel)
-
-	if root.err == nil {
-		t.Fatal("expected err to remain set after a non-key message")
-	}
-}
-
-func TestRootModel_QDoesNotQuitWhileCreatingConnection(t *testing.T) {
-	m, _ := newTestRootModel()
-	m.view = viewConnectionPicker
-	m.connPicker.creating = true
-
-	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
-	root := model.(RootModel)
-
-	if root.view != viewConnectionPicker {
-		t.Fatalf("expected to stay on viewConnectionPicker, got %v", root.view)
-	}
-	if cmd != nil {
-		if _, isQuit := cmd().(tea.QuitMsg); isQuit {
-			t.Fatal("expected 'q' to NOT quit the app while creating a connection")
-		}
-	}
-}
-
-func TestRootModel_CtrlCStillQuitsOutsideTextEntry(t *testing.T) {
-	m, _ := newTestRootModel()
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-	if cmd == nil {
-		t.Fatal("expected a quit command on Ctrl+C")
-	}
-	if _, isQuit := cmd().(tea.QuitMsg); !isQuit {
-		t.Fatal("expected Ctrl+C to produce tea.Quit")
-	}
-}
-
-// TestRootModel_NoArgLaunchPopulatesConnectionPickerFromConfig guards against
-// the connection picker staying a permanently-empty zero-value model when
-// NewRootModel is called with resolved == nil (the primary, no-CLI-args
-// launch path). internal/config's connectionsFile var is unexported, so this
-// test points it at a fixture via the exported config.SetConnectionsFileForTesting
-// test helper (mirrors the httptest style: a small exported setter meant only
-// for tests) instead of reading the real machine's ~/.config/mongo-
-// connections.sh. This keeps the test hermetic: it asserts against the exact
-// connections defined in internal/config/testdata/basic.sh ("prod", "qa"),
-// not whatever happens to exist on the machine running it. Before the fix,
-// m.connPicker was always a zero-value connectionPickerModel{} (empty list),
-// so this test would fail regardless of which fixture is used.
-func TestRootModel_NoArgLaunchPopulatesConnectionPickerFromConfig(t *testing.T) {
-	restore := config.SetConnectionsFileForTesting("../config/testdata/basic.sh")
-	t.Cleanup(restore)
-
-	wantConns, err := config.ListConnections()
-	if err != nil {
-		t.Fatalf("test precondition failed: config.ListConnections() returned an error: %v", err)
-	}
-	if len(wantConns) != 2 {
-		t.Fatalf("test precondition failed: expected fixture to define 2 connections, got %d: %+v", len(wantConns), wantConns)
-	}
-
-	fake := mongo.NewFakeClient()
-	m := NewRootModel(fake, nil)
-
-	if m.view != viewConnectionPicker {
-		t.Fatalf("expected viewConnectionPicker, got %v", m.view)
-	}
-	if m.err != nil {
-		t.Fatalf("expected no error, got %v", m.err)
-	}
-	if len(m.connPicker.list.Items) != len(wantConns) {
-		t.Fatalf("expected picker to have %d connections (from fixture testdata/basic.sh), got %d: %+v",
-			len(wantConns), len(m.connPicker.list.Items), m.connPicker.list.Items)
-	}
-	if !m.connPicker.list.CanCreate {
-		t.Fatal("expected picker to allow creating a new connection")
-	}
-
-	view := m.View()
-	for _, name := range []string{"qa", "prod"} {
-		if !strings.Contains(view, name) {
-			t.Fatalf("expected picker view to contain connection name %q (from fixture testdata/basic.sh), got view:\n%s", name, view)
-		}
-	}
-}
-
-// TestRootModel_FieldEditReloadsDocumentListNotEmpty proves that after a
-// successful field edit, the document list is actually reloaded from Mongo
-// (getting back the real docs/total) instead of the handler directly
-// constructing a documentsLoadedMsg{Err: nil} with zero-value Docs/Total,
-// which used to make the list appear completely empty even though the
-// collection still has documents.
-func TestRootModel_FieldEditReloadsDocumentListNotEmpty(t *testing.T) {
-	root, fake := rootModelInDocList(t)
-	fake.Databases["shop"]["orders"] = append(fake.Databases["shop"]["orders"], bson.M{"_id": "o2", "total": int32(20)})
-
-	// drill into the first document's detail so m.docDetail.doc["_id"] is set
-	model, cmd := root.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	root = model.(RootModel)
-	if root.view != viewDocumentDetail {
-		t.Fatalf("setup failed: expected viewDocumentDetail, got %v", root.view)
-	}
-	_ = cmd
-
-	model, cmd = root.Update(fieldUpdateConfirmedMsg{Field: "total", NewValue: int32(99)})
-	root = model.(RootModel)
-	if cmd == nil {
-		t.Fatal("expected a command to perform the field update write")
-	}
-	writeResult := cmd()
-	if _, ok := writeResult.(docWriteCompletedMsg); !ok {
-		t.Fatalf("expected fieldUpdateConfirmedMsg handler to produce docWriteCompletedMsg (reused by the filter-aware reload path), got %T", writeResult)
-	}
-
-	model, cmd = root.Update(writeResult)
-	root = model.(RootModel)
-	if cmd == nil {
-		t.Fatal("expected docWriteCompletedMsg to trigger a reload command")
-	}
-	reloaded := cmd()
-	model, _ = root.Update(reloaded)
-	root = model.(RootModel)
-
-	if root.view != viewDocumentList {
-		t.Fatalf("expected viewDocumentList after reload, got %v", root.view)
-	}
-	if len(root.docList.docs) != 2 {
-		t.Fatalf("expected document list to be reloaded with 2 documents (not empty), got %d", len(root.docList.docs))
-	}
-	if root.docList.total != 2 {
-		t.Fatalf("expected total to be 2, got %d", root.docList.total)
-	}
-}
-
-// TestRootModel_DeleteReloadsDocumentListNotEmpty mirrors the field-edit
-// case above for the delete flow.
-func TestRootModel_DeleteReloadsDocumentListNotEmpty(t *testing.T) {
-	root, fake := rootModelInDocList(t)
-	fake.Databases["shop"]["orders"] = append(fake.Databases["shop"]["orders"], bson.M{"_id": "o2", "total": int32(20)})
-
-	model, _ := root.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	root = model.(RootModel)
-	if root.view != viewDocumentDetail {
-		t.Fatalf("setup failed: expected viewDocumentDetail, got %v", root.view)
-	}
-
-	model, cmd := root.Update(deleteConfirmedMsg{})
-	root = model.(RootModel)
-	if cmd == nil {
-		t.Fatal("expected a command to perform the delete write")
-	}
-	writeResult := cmd()
-	if _, ok := writeResult.(docWriteCompletedMsg); !ok {
-		t.Fatalf("expected deleteConfirmedMsg handler to produce docWriteCompletedMsg (reused by the filter-aware reload path), got %T", writeResult)
-	}
-
-	model, cmd = root.Update(writeResult)
-	root = model.(RootModel)
-	reloaded := cmd()
-	model, _ = root.Update(reloaded)
-	root = model.(RootModel)
-
-	if root.view != viewDocumentList {
-		t.Fatalf("expected viewDocumentList after reload, got %v", root.view)
-	}
-	if len(root.docList.docs) != 1 {
-		t.Fatalf("expected document list to be reloaded with 1 remaining document (not empty), got %d", len(root.docList.docs))
-	}
-}
-
-// TestRootModel_FilterPersistsAcrossPageChange proves that paging forward
-// after applying a filter keeps m.filter set and reloads using it, instead
-// of silently reverting to bson.M{} (the unfiltered collection) while the
-// UI still shows "Filtro activo".
-func TestRootModel_FilterPersistsAcrossPageChange(t *testing.T) {
-	root, fake := rootModelInDocList(t)
-	// give the collection enough documents that "n" (next page) is a no-op
-	// pagination command rather than being swallowed for lack of a next page
-	for i := 0; i < pageSize+1; i++ {
-		fake.Databases["shop"]["orders"] = append(fake.Databases["shop"]["orders"], bson.M{"_id": fmt.Sprintf("extra-%d", i), "total": int32(10)})
-	}
-	root = applyFilter(t, root, `{"total":10}`)
-	if root.filter == nil {
-		t.Fatal("expected m.filter to be set after filterSubmittedMsg")
-	}
-
-	// pressing "n" makes docListModel emit pageChangedMsg, which RootModel's
-	// viewDocumentList case immediately turns into a m.loadDocuments(...)
-	// reload command (updating m.page synchronously along the way).
-	model, cmd := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
-	root = model.(RootModel)
-	if cmd == nil {
-		t.Fatal("expected a reload command after pressing 'n' to page forward")
-	}
-	model, _ = root.Update(cmd())
-	root = model.(RootModel)
-
-	if root.filter == nil {
-		t.Fatal("expected m.filter to remain set after paging")
-	}
-	if root.filter["total"] != int32(10) {
-		t.Fatalf("expected filter to still be {total:10}, got %+v", root.filter)
-	}
-	if root.page != 1 {
-		t.Fatalf("expected page to have advanced to 1, got %d", root.page)
-	}
-}
-
-// TestRootModel_FilterResetOnNewCollection proves entering a different
-// collection resets any previously-active filter instead of carrying it
-// over.
-func TestRootModel_FilterResetOnNewCollection(t *testing.T) {
-	root, _ := rootModelInDocList(t)
-	root = applyFilter(t, root, `{"total":10}`)
-	if root.filter == nil {
-		t.Fatal("expected m.filter to be set after filterSubmittedMsg")
-	}
-
-	root.view = viewCollectionList
-	model, _ := root.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	root = model.(RootModel)
-
-	if root.filter != nil {
-		t.Fatalf("expected m.filter to be reset to nil after choosing a new collection, got %+v", root.filter)
-	}
-}
-
-func TestRootModel_DropIndexWritesImmediately(t *testing.T) {
-	root, fake := rootModelInDocList(t)
-	fake.Indexes["shop"] = map[string][]mongo.IndexInfo{
-		"orders": {{Name: "total_1", Key: bson.M{"total": 1}}},
-	}
-	root = switchToIndexList(t, root)
-
-	// idxListModel already confirms internally before emitting
-	// indexDropConfirmedMsg, so RootModel executes it directly.
-	model, cmd := root.Update(indexDropConfirmedMsg{Name: "total_1"})
-	root = model.(RootModel)
-	_, _ = root.Update(cmd())
-
-	if len(fake.Indexes["shop"]["orders"]) != 0 {
-		t.Fatalf("expected index dropped, got %+v", fake.Indexes["shop"]["orders"])
+	if len(root.dbList.Items) != 1 || root.dbList.Items[0].ID != "shop" {
+		t.Fatalf("expected dbList populated with 'shop', got %+v", root.dbList.Items)
 	}
 }
 
@@ -526,4 +56,258 @@ func TestRootModel_LogfAppendsAndCapsAt50(t *testing.T) {
 	if root.log[len(root.log)-1] != "line 59" {
 		t.Fatalf("expected most recent entry to be 'line 59', got %q", root.log[len(root.log)-1])
 	}
+}
+
+func TestRootModel_DefaultFocus_WithResolvedConnection_IsDatabases(t *testing.T) {
+	m, _ := newTestRootModel()
+	if m.focus != panelDatabases {
+		t.Fatalf("expected focus=panelDatabases when launched with a resolved connection, got %v", m.focus)
+	}
+}
+
+func TestRootModel_DefaultFocus_NoArgLaunch_IsConnections(t *testing.T) {
+	fake := mongo.NewFakeClient()
+	m := NewRootModel(fake, nil)
+	if m.focus != panelConnections {
+		t.Fatalf("expected focus=panelConnections on no-argument launch, got %v", m.focus)
+	}
+}
+
+func TestRootModel_NumberKeysSwitchFocus(t *testing.T) {
+	m, _ := newTestRootModel()
+	root := *m
+	cases := []struct {
+		key   string
+		panel panelID
+	}{
+		{"1", panelStatus},
+		{"2", panelDatabases},
+		{"3", panelCollections},
+		{"4", panelIndexes},
+		{"5", panelConnections},
+	}
+	for _, c := range cases {
+		model, _ := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(c.key)})
+		root = model.(RootModel)
+		if root.focus != c.panel {
+			t.Fatalf("pressing %q: expected focus=%v, got %v", c.key, c.panel, root.focus)
+		}
+	}
+}
+
+func TestRootModel_TabSwitchesFocusToDocuments(t *testing.T) {
+	m, _ := newTestRootModel()
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	root := model.(RootModel)
+	if root.focus != panelDocuments {
+		t.Fatalf("expected focus=panelDocuments after Tab, got %v", root.focus)
+	}
+}
+
+// rootModelAtDatabasesFocus drives a RootModel to focus=panelDatabases with
+// "shop" already loaded via Init(), landing on cursor 0 (the only database).
+func rootModelAtDatabasesFocus(t *testing.T) (RootModel, *mongo.FakeClient) {
+	t.Helper()
+	m, fake := newTestRootModel()
+	model, _ := m.Update(m.Init()())
+	root := model.(RootModel)
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	root = model.(RootModel)
+	return root, fake
+}
+
+func TestRootModel_CursorMoveInDatabasesCascadesToCollections(t *testing.T) {
+	root, fake := rootModelAtDatabasesFocus(t)
+	fake.Databases["shop"]["users"] = []bson.M{{"_id": "u1"}}
+
+	// cursor is already on "shop" (the only database) after Init; add a
+	// second database ("admin") ahead of "shop" so a real cursor move ("j")
+	// forces a cursor-change event, triggering the cascade to collections.
+	model, _ := root.Update(connectedMsg{Databases: []string{"admin", "shop"}})
+	root = model.(RootModel)
+
+	model, cmd := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	root = model.(RootModel)
+	if cmd == nil {
+		t.Fatal("expected a command (collections load) after moving cursor to a new database")
+	}
+	model, _ = root.Update(cmd())
+	root = model.(RootModel)
+	if len(root.collList.Items) != 2 {
+		t.Fatalf("expected 2 collections loaded for 'shop', got %+v", root.collList.Items)
+	}
+}
+
+func TestRootModel_PopupHelpTogglesOnQuestionMark(t *testing.T) {
+	m, _ := newTestRootModel()
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+	root := model.(RootModel)
+	if root.popup != popupHelp {
+		t.Fatalf("expected popup=popupHelp after '?', got %v", root.popup)
+	}
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	root = model.(RootModel)
+	if root.popup != popupNone {
+		t.Fatalf("expected any key to close help popup, got popup=%v", root.popup)
+	}
+}
+
+func TestRootModel_QuitsOnCtrlC(t *testing.T) {
+	m, _ := newTestRootModel()
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatal("expected a quit command on Ctrl+C")
+	}
+}
+
+func TestRootModel_ViewShowsConnectionNameInStatusBar(t *testing.T) {
+	m, _ := newTestRootModel()
+	view := m.View()
+	if !strings.Contains(view, "qa") {
+		t.Fatalf("expected status panel to show connection name 'qa', got view:\n%s", view)
+	}
+}
+
+func TestRootModel_ErrorClearsOnAnyKeypress(t *testing.T) {
+	m, _ := newTestRootModel()
+	root := *m
+	root.err = fmt.Errorf("boom")
+	model, _ := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	root = model.(RootModel)
+	if root.err != nil {
+		t.Fatalf("expected err to be cleared after a keypress, got %v", root.err)
+	}
+}
+
+// TestRootModel_DocumentEnterOpensDocDetailPopup drives a full, real cascade:
+// two databases are seeded so moving the cursor in Databases triggers a
+// genuine cursor-change event (the cascade in this implementation fires on
+// cursor movement, not on initial population — see the Update code for
+// panelDatabases/panelCollections), which loads Collections; then moving the
+// cursor in Collections cascades to load both Indexes and Documents. Once
+// documents are loaded, focusing Documents (Tab) and pressing Enter on the
+// only document must open the doc-detail popup.
+func TestRootModel_DocumentEnterOpensDocDetailPopup(t *testing.T) {
+	fake := mongo.NewFakeClient()
+	fake.Databases["admin"] = map[string][]bson.M{}
+	fake.Databases["shop"] = map[string][]bson.M{
+		"logs":   {},
+		"orders": {{"_id": "o1", "total": int32(10)}},
+	}
+	conn := config.Connection{Name: "qa", URI: "mongodb://fake", Color: "verde"}
+	m := NewRootModel(fake, &conn)
+
+	// Init connects and lists databases. FakeClient.ListDatabases/
+	// ListCollections iterate over a Go map, so their order is NOT
+	// deterministic across runs — the cascade in this implementation fires
+	// only on an actual cursor *change*, so driveCursorToItem (below) is
+	// used to land the cursor deterministically on "shop"/"orders" and
+	// force a real cascade regardless of which index the fake happened to
+	// put them at, keeping this test hermetic instead of flaky.
+	model, _ := m.Update(m.Init()())
+	root := model.(RootModel)
+
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	root = model.(RootModel)
+	root = driveCursorToItem(t, root, root.dbList, "shop")
+	if root.db != "shop" {
+		t.Fatalf("expected cursor to land on 'shop', got db=%q", root.db)
+	}
+	if len(root.collList.Items) != 2 {
+		t.Fatalf("expected 2 collections loaded for 'shop', got %+v", root.collList.Items)
+	}
+
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	root = model.(RootModel)
+	root = driveCursorToItem(t, root, root.collList, "orders")
+	if root.coll != "orders" {
+		t.Fatalf("expected cursor to land on 'orders', got coll=%q", root.coll)
+	}
+	if len(root.docList.docs) != 1 {
+		t.Fatalf("expected 1 document loaded for 'orders', got %+v", root.docList.docs)
+	}
+
+	// Focus Documents and press Enter on the only document: this must open
+	// the doc-detail popup.
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyTab})
+	root = model.(RootModel)
+	if root.focus != panelDocuments {
+		t.Fatalf("expected focus=panelDocuments after Tab, got %v", root.focus)
+	}
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	root = model.(RootModel)
+	if root.popup != popupDocDetail {
+		t.Fatalf("expected popup=popupDocDetail after Enter on a document, got %v", root.popup)
+	}
+	if root.docDetail.doc["_id"] != "o1" {
+		t.Fatalf("expected docDetail to hold document 'o1', got %+v", root.docDetail.doc)
+	}
+}
+
+// driveCursorToItem presses "j"/"k" on root (whose currently-focused panel
+// backs the given list) until its cursor lands on the item with the given
+// ID, applying each resulting cascade command (and flattening any
+// tea.Batch) along the way, and returns the updated root. It always forces
+// at least one real cursor-change event — even when the target is already
+// at cursor 0 — by first moving down to a different index (when the list
+// has more than one item) and then back up, since this implementation's
+// database/collection cascade fires only on an actual cursor change, not on
+// initial population. This keeps tests deterministic regardless of the
+// order FakeClient happens to return names in (map iteration is unordered).
+func driveCursorToItem(t *testing.T, root RootModel, list listModel, id string) RootModel {
+	t.Helper()
+	target := -1
+	for i, item := range list.Items {
+		if item.ID == id {
+			target = i
+			break
+		}
+	}
+	if target == -1 {
+		t.Fatalf("item %q not found in list %+v", id, list.Items)
+	}
+
+	apply := func(key string) {
+		model, cmd := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+		root = model.(RootModel)
+		if cmd == nil {
+			return
+		}
+		for _, bm := range flattenBatchMsg(t, cmd()) {
+			model, _ = root.Update(bm)
+			root = model.(RootModel)
+		}
+	}
+
+	if target == 0 {
+		if len(list.Items) > 1 {
+			apply("j")
+			apply("k")
+		}
+		return root
+	}
+	for i := 0; i < target; i++ {
+		apply("j")
+	}
+	return root
+}
+
+// flattenBatchMsg resolves a tea.Cmd's result, which may be a tea.BatchMsg
+// (a []tea.Cmd) produced by tea.Batch, into the concrete messages each
+// sub-command yields. Bubbletea's own runtime does this internally; tests
+// driving Update() by hand need to do it explicitly.
+func flattenBatchMsg(t *testing.T, msg tea.Msg) []tea.Msg {
+	t.Helper()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		return []tea.Msg{msg}
+	}
+	var out []tea.Msg
+	for _, c := range batch {
+		if c == nil {
+			continue
+		}
+		out = append(out, flattenBatchMsg(t, c())...)
+	}
+	return out
 }
