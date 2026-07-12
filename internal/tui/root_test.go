@@ -104,6 +104,43 @@ func TestRootModel_TabSwitchesFocusToDocuments(t *testing.T) {
 	}
 }
 
+// TestRootModel_TabFromDatabasesMovesToDocuments is a regression check that
+// Tab's primary behavior (jump to Documents from any other panel) still
+// works after the fix that lets Tab fall through to per-panel routing when
+// focus is already panelDocuments.
+func TestRootModel_TabFromDatabasesMovesToDocuments(t *testing.T) {
+	root, _ := rootModelAtDatabasesFocus(t)
+	if root.focus != panelDatabases {
+		t.Fatalf("precondition failed: expected focus=panelDatabases, got %v", root.focus)
+	}
+	model, _ := root.Update(tea.KeyMsg{Type: tea.KeyTab})
+	root = model.(RootModel)
+	if root.focus != panelDocuments {
+		t.Fatalf("expected focus=panelDocuments after Tab from panelDatabases, got %v", root.focus)
+	}
+}
+
+// TestRootModel_TabWhileAlreadyOnDocuments_FallsThroughToSwitchToIndexes
+// proves the old v1 behavior is restored: when focus is ALREADY
+// panelDocuments, Tab must NOT be swallowed by the global handler — it needs
+// to reach docListModel.Update, which (per its own internal Tab handling)
+// emits switchToIndexesMsg, handled by the panelDocuments branch by setting
+// focus=panelIndexes and loading indexes.
+func TestRootModel_TabWhileAlreadyOnDocuments_FallsThroughToSwitchToIndexes(t *testing.T) {
+	m, _ := newTestRootModel()
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	root := model.(RootModel)
+	if root.focus != panelDocuments {
+		t.Fatalf("precondition failed: expected focus=panelDocuments after first Tab, got %v", root.focus)
+	}
+
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyTab})
+	root = model.(RootModel)
+	if root.focus != panelIndexes {
+		t.Fatalf("expected focus=panelIndexes after Tab while already on panelDocuments, got %v", root.focus)
+	}
+}
+
 // rootModelAtDatabasesFocus drives a RootModel to focus=panelDatabases with
 // "shop" already loaded via Init(), landing on cursor 0 (the only database).
 func rootModelAtDatabasesFocus(t *testing.T) (RootModel, *mongo.FakeClient) {

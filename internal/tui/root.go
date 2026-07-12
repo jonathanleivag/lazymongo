@@ -246,8 +246,10 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focus = panelConnections
 				return m, nil
 			case "tab":
-				m.focus = panelDocuments
-				return m, nil
+				if m.focus != panelDocuments {
+					m.focus = panelDocuments
+					return m, nil
+				}
 			}
 		}
 	}
@@ -546,16 +548,6 @@ func (m RootModel) executePendingWrite() (tea.Model, tea.Cmd) {
 // of tea.Model.
 func (m RootModel) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m.Update(msg)
-}
-
-// statusBar renders the current connection's name in its assigned color, so
-// it's always visible which environment (e.g. qa vs. prod) is being edited.
-func (m RootModel) statusBar() string {
-	if m.conn.Name == "" {
-		return ""
-	}
-	label := fmt.Sprintf(" %s ", m.conn.Name)
-	return colorStyle(m.conn.Color).Reverse(true).Render(label) + "\n\n"
 }
 
 func (m RootModel) View() string {
