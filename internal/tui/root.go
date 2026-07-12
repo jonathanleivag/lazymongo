@@ -27,6 +27,28 @@ const (
 
 const pageSize = 20
 
+type panelID int
+
+const (
+	panelStatus panelID = iota
+	panelDatabases
+	panelCollections
+	panelIndexes
+	panelConnections
+	panelDocuments
+)
+
+type popupID int
+
+const (
+	popupNone popupID = iota
+	popupDocDetail
+	popupFieldEdit
+	popupConfirmWrite
+	popupDelete
+	popupHelp
+)
+
 type RootModel struct {
 	client mongo.Client
 
@@ -54,6 +76,13 @@ type RootModel struct {
 	pendingDoc           bson.M
 	pendingIndexKeysJSON string
 	pendingIndexUnique   bool
+
+	focus panelID
+	popup popupID
+
+	width  int
+	height int
+	log    []string
 
 	err error
 }
@@ -100,6 +129,15 @@ func (m RootModel) popView() RootModel {
 	m.view = m.prevViews[len(m.prevViews)-1]
 	m.prevViews = m.prevViews[:len(m.prevViews)-1]
 	return m
+}
+
+// logf appends a formatted line to the command log, keeping only the most
+// recent 50 entries.
+func (m *RootModel) logf(format string, args ...any) {
+	m.log = append(m.log, fmt.Sprintf(format, args...))
+	if len(m.log) > 50 {
+		m.log = m.log[len(m.log)-50:]
+	}
 }
 
 func (m RootModel) Init() tea.Cmd {
@@ -201,6 +239,12 @@ func (m RootModel) inTextEntry() bool {
 }
 
 func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if wsMsg, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width = wsMsg.Width
+		m.height = wsMsg.Height
+		return m, nil
+	}
+
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		if m.err != nil {
 			m.err = nil

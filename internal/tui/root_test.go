@@ -504,3 +504,26 @@ func TestRootModel_DropIndexWritesImmediately(t *testing.T) {
 		t.Fatalf("expected index dropped, got %+v", fake.Indexes["shop"]["orders"])
 	}
 }
+
+func TestRootModel_WindowSizeMsgUpdatesDimensions(t *testing.T) {
+	m, _ := newTestRootModel()
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	root := model.(RootModel)
+	if root.width != 120 || root.height != 40 {
+		t.Fatalf("expected width=120 height=40, got width=%d height=%d", root.width, root.height)
+	}
+}
+
+func TestRootModel_LogfAppendsAndCapsAt50(t *testing.T) {
+	m, _ := newTestRootModel()
+	root := *m
+	for i := 0; i < 60; i++ {
+		root.logf("line %d", i)
+	}
+	if len(root.log) != 50 {
+		t.Fatalf("expected log capped at 50 entries, got %d", len(root.log))
+	}
+	if root.log[len(root.log)-1] != "line 59" {
+		t.Fatalf("expected most recent entry to be 'line 59', got %q", root.log[len(root.log)-1])
+	}
+}
