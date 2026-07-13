@@ -86,3 +86,113 @@ func TestConnectionPicker_TypingADuringFilterDoesNotOpenCreateForm(t *testing.T)
 		t.Fatalf("expected 'a' to be added to the filter query, got %q", m.list.FilterQuery())
 	}
 }
+
+func TestConnectionPicker_EPreFillsEditFormWithCurrentValues(t *testing.T) {
+	conns := []config.Connection{
+		{Name: "qa", URI: "mongodb://qa:27017", Color: "verde"},
+	}
+	m := newConnectionPickerModel(conns)
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	if !m.editing {
+		t.Fatal("expected picker to enter 'editing' mode after pressing 'e'")
+	}
+	if m.form.name != "qa" || m.form.uri != "mongodb://qa:27017" || m.form.color != "verde" {
+		t.Fatalf("expected form pre-filled with current values, got %+v", m.form)
+	}
+	if m.form.field != 1 {
+		t.Fatalf("expected edit form to start on the URI field (1), got %d", m.form.field)
+	}
+}
+
+func TestConnectionForm_NameFieldIsReadOnlyWhenLocked(t *testing.T) {
+	f := newEditConnectionForm(config.Connection{Name: "qa", URI: "mongodb://qa", Color: "verde"})
+	f.field = 0 // force onto the Name field to prove typing is still rejected
+	f = f.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	if f.name != "qa" {
+		t.Fatalf("expected Name to stay unchanged when locked, got %q", f.name)
+	}
+}
+
+func TestConnectionForm_TabInLockedModeOnlyCyclesURIAndColor(t *testing.T) {
+	f := newEditConnectionForm(config.Connection{Name: "qa", URI: "mongodb://qa", Color: "verde"})
+	if f.field != 1 {
+		t.Fatalf("expected edit form to start on field 1 (URI), got %d", f.field)
+	}
+	f = f.update(tea.KeyMsg{Type: tea.KeyTab})
+	if f.field != 2 {
+		t.Fatalf("expected Tab to move to field 2 (Color), got %d", f.field)
+	}
+	f = f.update(tea.KeyMsg{Type: tea.KeyTab})
+	if f.field != 1 {
+		t.Fatalf("expected Tab to cycle back to field 1 (URI), skipping Name, got %d", f.field)
+	}
+}
+
+func TestConnectionPicker_EnterInEditModeReturnsACommand(t *testing.T) {
+	conns := []config.Connection{
+		{Name: "qa", URI: "mongodb://qa:27017", Color: "verde"},
+	}
+	m := newConnectionPickerModel(conns)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	if m.form.uri != "mongodb://qa:270172" {
+		t.Fatalf("expected the edited URI to accumulate, got %q", m.form.uri)
+	}
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected a command on submitting the edit form")
+	}
+}
+
+func TestConnectionPicker_DOpensDeleteConfirmation(t *testing.T) {
+	conns := []config.Connection{
+		{Name: "qa", URI: "mongodb://qa:27017", Color: "verde"},
+	}
+	m := newConnectionPickerModel(conns)
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	if !m.confirmingDelete {
+		t.Fatal("expected picker to enter 'confirmingDelete' mode after pressing 'd'")
+	}
+}
+
+func TestConnectionPicker_ConfirmingDeleteReturnsACommand(t *testing.T) {
+	conns := []config.Connection{
+		{Name: "qa", URI: "mongodb://qa:27017", Color: "verde"},
+	}
+	m := newConnectionPickerModel(conns)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	if cmd == nil {
+		t.Fatal("expected a command after confirming delete")
+	}
+}
+
+func TestConnectionPicker_TypingEDDuringFilterDoesNotTriggerEditOrDelete(t *testing.T) {
+	conns := []config.Connection{
+		{Name: "qa", URI: "mongodb://qa:27017", Color: "verde"},
+		{Name: "staging", URI: "mongodb://staging:27017", Color: "amarillo"},
+	}
+	m := newConnectionPickerModel(conns)
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	if !m.list.Filtering() {
+		t.Fatal("expected the underlying list to be filtering after '/'")
+	}
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	if m.editing {
+		t.Fatal("expected 'e' typed while filtering to NOT open the edit form")
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	if m.confirmingDelete {
+		t.Fatal("expected 'd' typed while filtering to NOT open the delete confirmation")
+	}
+	if m.list.FilterQuery() != "ed" {
+		t.Fatalf("expected 'e' and 'd' to be added to the filter query, got %q", m.list.FilterQuery())
+	}
+}
