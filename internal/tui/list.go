@@ -20,17 +20,62 @@ type listModel struct {
 	Items     []listItem
 	Cursor    int
 	CanCreate bool
+
+	filtering   bool
+	filterQuery string
+	allItems    []listItem
 }
 
 func newListModel(title string, items []listItem, canCreate bool) listModel {
 	return listModel{Title: title, Items: items, CanCreate: canCreate}
 }
 
+// Filtering reports whether this list is in an active fuzzy-search
+// text-entry state, so RootModel.inTextEntry can keep global shortcuts
+// (like "?", "1"-"5", "Tab") from stealing keystrokes meant for the query.
+func (m listModel) Filtering() bool { return m.filtering }
+
+// FilterQuery returns the text typed so far into the active fuzzy search.
+func (m listModel) FilterQuery() string { return m.filterQuery }
+
 func (m listModel) Update(msg tea.Msg) (listModel, tea.Cmd) {
 	keyMsg, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
 	}
+
+	if m.filtering {
+		switch keyMsg.Type {
+		case tea.KeyEsc:
+			m.filtering = false
+			m.filterQuery = ""
+			m.Items = m.allItems
+			m.Cursor = 0
+		case tea.KeyUp:
+			if m.Cursor > 0 {
+				m.Cursor--
+			}
+		case tea.KeyDown:
+			if m.Cursor < len(m.Items)-1 {
+				m.Cursor++
+			}
+		case tea.KeyEnter:
+			if len(m.Items) > 0 {
+				item := m.Items[m.Cursor]
+				return m, func() tea.Msg { return itemSelectedMsg{Item: item} }
+			}
+		case tea.KeyBackspace:
+			if r := []rune(m.filterQuery); len(r) > 0 {
+				m.filterQuery = string(r[:len(r)-1])
+			}
+			m.applyFilter()
+		case tea.KeyRunes:
+			m.filterQuery += string(keyMsg.Runes)
+			m.applyFilter()
+		}
+		return m, nil
+	}
+
 	switch keyMsg.String() {
 	case "j", "down":
 		if m.Cursor < len(m.Items)-1 {
@@ -45,10 +90,31 @@ func (m listModel) Update(msg tea.Msg) (listModel, tea.Cmd) {
 			item := m.Items[m.Cursor]
 			return m, func() tea.Msg { return itemSelectedMsg{Item: item} }
 		}
+	case "/":
+		m.filtering = true
+		m.filterQuery = ""
+		m.allItems = m.Items
 	case "esc", "h":
 		return m, func() tea.Msg { return listBackMsg{} }
 	}
 	return m, nil
+}
+
+// applyFilter recomputes Items from allItems using the current filterQuery,
+// ordered by fuzzy match quality (best first), and resets Cursor to the top
+// result.
+func (m *listModel) applyFilter() {
+	labels := make([]string, len(m.allItems))
+	for i, item := range m.allItems {
+		labels[i] = item.Label
+	}
+	idxs := fuzzyMatchIndexes(m.filterQuery, labels)
+	items := make([]listItem, len(idxs))
+	for i, idx := range idxs {
+		items[i] = m.allItems[idx]
+	}
+	m.Items = items
+	m.Cursor = 0
 }
 
 func (m listModel) View() string {
