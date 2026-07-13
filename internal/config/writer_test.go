@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -271,5 +272,90 @@ func TestDeleteConnection_RejectsUnsafeName(t *testing.T) {
 	}
 	if string(before) != string(after) {
 		t.Fatalf("file was modified despite rejected name")
+	}
+}
+
+// TestAddConnection_NeutralizesShellMetacharactersInURI proves the fix for a
+// second shell-injection vector found in final review: unlike conn.Name
+// (validated and rejected outright if unsafe), conn.URI/conn.Color were
+// never validated — they went straight into the zsh array value via
+// fmt.Sprintf("%q", ...). Go's %q escapes for GO's own double-quote syntax,
+// not zsh's: a zsh double-quoted string still performs $(...)/backtick
+// command substitution, so a URI like "mongodb://x$(cmd)y" wrote a live
+// command substitution into ~/.config/mongo-connections.sh — a file
+// .zshrc sources on every new terminal, making this a persistent/stored
+// RCE, not a one-off. The fix wraps the value in zsh single quotes instead
+// (see zshSingleQuote), which perform no expansion at all.
+func TestAddConnection_NeutralizesShellMetacharactersInURI(t *testing.T) {
+	withTempConnectionsFile(t, "testdata/basic.sh")
+
+	marker := filepath.Join(t.TempDir(), "pwned")
+	malicious := fmt.Sprintf("mongodb://x$(touch %s)y", marker)
+
+	if err := AddConnection(Connection{Name: "evil", URI: malicious, Color: "verde"}); err != nil {
+		t.Fatalf("AddConnection failed: %v", err)
+	}
+
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("command substitution in URI was executed — shell injection not neutralized")
+	}
+
+	conn, err := ResolveConnection("evil")
+	if err != nil {
+		t.Fatalf("resolving connection: %v", err)
+	}
+	if conn.URI != malicious {
+		t.Fatalf("expected URI preserved literally as %q, got %q", malicious, conn.URI)
+	}
+}
+
+func TestAddConnection_PreservesSingleQuoteInURI(t *testing.T) {
+	withTempConnectionsFile(t, "testdata/basic.sh")
+
+	uri := "mongodb://user:p'ass@host/db"
+	if err := AddConnection(Connection{Name: "quoted", URI: uri, Color: "rojo"}); err != nil {
+		t.Fatalf("AddConnection failed: %v", err)
+	}
+
+	conn, err := ResolveConnection("quoted")
+	if err != nil {
+		t.Fatalf("resolving connection: %v", err)
+	}
+	if conn.URI != uri {
+		t.Fatalf("expected URI %q preserved intact, got %q", uri, conn.URI)
+	}
+}
+
+func TestAddConnection_ResultIsValidZshWithMetacharactersInURI(t *testing.T) {
+	path := withTempConnectionsFile(t, "testdata/basic.sh")
+
+	if err := AddConnection(Connection{Name: "meta", URI: "a`b$c\\d'e", Color: "amarillo"}); err != nil {
+		t.Fatalf("AddConnection failed: %v", err)
+	}
+	if err := validateZshSyntax(path); err != nil {
+		t.Fatalf("resulting file is not valid zsh: %v", err)
+	}
+}
+
+func TestUpdateConnection_NeutralizesShellMetacharactersInURI(t *testing.T) {
+	withTempConnectionsFile(t, "testdata/basic.sh")
+
+	marker := filepath.Join(t.TempDir(), "pwned")
+	malicious := fmt.Sprintf("mongodb://x$(touch %s)y", marker)
+
+	if err := UpdateConnection(Connection{Name: "qa", URI: malicious, Color: "verde"}); err != nil {
+		t.Fatalf("UpdateConnection failed: %v", err)
+	}
+
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("command substitution in URI was executed — shell injection not neutralized")
+	}
+
+	conn, err := ResolveConnection("qa")
+	if err != nil {
+		t.Fatalf("resolving connection: %v", err)
+	}
+	if conn.URI != malicious {
+		t.Fatalf("expected URI preserved literally as %q, got %q", malicious, conn.URI)
 	}
 }

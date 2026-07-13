@@ -50,15 +50,33 @@ func AddConnection(conn Connection) error {
 }
 
 func insertConnection(content string, conn Connection) (string, error) {
-	content, err := insertIntoArray(content, "MONGO_CONNECTIONS", fmt.Sprintf("  [%s]=%q", conn.Name, conn.URI))
+	content, err := insertIntoArray(content, "MONGO_CONNECTIONS", fmt.Sprintf("  [%s]=%s", conn.Name, zshSingleQuote(conn.URI)))
 	if err != nil {
 		return "", err
 	}
-	content, err = insertIntoArray(content, "MONGO_CONNECTION_COLORS", fmt.Sprintf("  [%s]=%q", conn.Name, conn.Color))
+	content, err = insertIntoArray(content, "MONGO_CONNECTION_COLORS", fmt.Sprintf("  [%s]=%s", conn.Name, zshSingleQuote(conn.Color)))
 	if err != nil {
 		return "", err
 	}
 	return content, nil
+}
+
+// zshSingleQuote wraps s in zsh single quotes, safe for literal
+// interpolation as an array *value* (conn.URI/conn.Color — conn.Name is a
+// separate case, validated by isValidConnectionName and never quoted, since
+// it's the array subscript itself). This replaces the previous
+// fmt.Sprintf("%q", s): Go's %q escapes for GO's own double-quote syntax,
+// not zsh's — a zsh double-quoted string still performs $(...)/backtick
+// command substitution and backslash escapes, so a value like
+// "mongodb://x$(cmd)y" wrote a live command substitution into
+// ~/.config/mongo-connections.sh, a file .zshrc sources on every new
+// terminal (confirmed via a real exploit reproduction during final
+// review — a persistent/stored RCE, not a one-off). zsh single-quoted
+// strings perform no expansion at all; the only character that needs
+// handling inside one is a literal single quote, escaped by closing the
+// quote, emitting an escaped literal quote, and reopening: '\''.
+func zshSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // insertIntoArray inserts newLine just before the closing ")" of the named
@@ -140,11 +158,11 @@ func UpdateConnection(conn Connection) error {
 }
 
 func updateConnectionInFile(content string, conn Connection) (string, error) {
-	content, err := replaceOrInsertInArray(content, "MONGO_CONNECTIONS", conn.Name, fmt.Sprintf("  [%s]=%q", conn.Name, conn.URI))
+	content, err := replaceOrInsertInArray(content, "MONGO_CONNECTIONS", conn.Name, fmt.Sprintf("  [%s]=%s", conn.Name, zshSingleQuote(conn.URI)))
 	if err != nil {
 		return "", err
 	}
-	content, err = replaceOrInsertInArray(content, "MONGO_CONNECTION_COLORS", conn.Name, fmt.Sprintf("  [%s]=%q", conn.Name, conn.Color))
+	content, err = replaceOrInsertInArray(content, "MONGO_CONNECTION_COLORS", conn.Name, fmt.Sprintf("  [%s]=%s", conn.Name, zshSingleQuote(conn.Color)))
 	if err != nil {
 		return "", err
 	}
