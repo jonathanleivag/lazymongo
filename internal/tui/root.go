@@ -310,7 +310,18 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.Err
 			return m, nil
 		}
-		m.docList = newDocListModel(msg.Docs, msg.Total, m.page, pageSize)
+		newList := newDocListModel(msg.Docs, msg.Total, m.page, pageSize)
+		// Every reload used to replace docList wholesale, silently wiping
+		// filter/filterCursor even when the reload was the direct result of
+		// applying that same filter (or just paginating with it still
+		// active). Carrying them over here keeps the "Filtro activo: ..."
+		// indicator — and the Esc-clears-it behavior, which depends on
+		// filter being non-empty — correct after the reload completes.
+		// Callers that should show no filter (e.g. switching collections)
+		// clear m.docList.filter themselves before triggering the reload.
+		newList.filter = m.docList.filter
+		newList.filterCursor = m.docList.filterCursor
+		m.docList = newList
 		return m, nil
 
 	case indexesLoadedMsg:
@@ -472,6 +483,11 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.coll = afterID
 			m.page = 0
 			m.filter = nil
+			// documentsLoadedMsg now carries docList.filter across a reload
+			// (see its handler) so a stale filter from the previous
+			// collection doesn't linger — clear it explicitly here too.
+			m.docList.filter = ""
+			m.docList.filterCursor = 0
 			return m, tea.Batch(m.loadIndexes(), m.loadDocuments(bson.M{}))
 		}
 		return m, listCmd

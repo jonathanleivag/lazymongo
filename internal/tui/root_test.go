@@ -682,3 +682,129 @@ func TestRootModel_DocumentsFilterCursorMarkerAtRealPosition(t *testing.T) {
 		t.Fatalf("expected the cursor marker between the auto-closed braces, got:\n%s", view)
 	}
 }
+
+// TestRootModel_AppliedFilterSurvivesTheReloadItTriggers is a regression
+// test for a bug found via manual testing: applying a filter (Enter) sets
+// docList.filter correctly, but the moment the resulting async reload
+// completes, documentsLoadedMsg's handler used to replace m.docList with a
+// brand-new newDocListModel(...) that never carries the filter text over —
+// wiping it back to "" within a render or two of applying it. Since Esc
+// clearing an applied filter depends on docList.filter being non-empty,
+// this made Esc appear to do nothing: by the time a user reacted and
+// pressed it, the filter text was already gone.
+func TestRootModel_AppliedFilterSurvivesTheReloadItTriggers(t *testing.T) {
+	fake := mongo.NewFakeClient()
+	fake.Databases["shop"] = map[string][]bson.M{
+		"orders": {{"_id": "o1", "name": "Ana"}, {"_id": "o2", "name": "Beto"}},
+	}
+	conn := config.Connection{Name: "qa", URI: "mongodb://fake", Color: "verde"}
+	m := NewRootModel(fake, &conn)
+
+	model, _ := m.Update(m.Init()())
+	root := model.(RootModel)
+	root.db = "shop"
+	root.coll = "orders"
+	model, _ = root.Update(documentsLoadedMsg{Docs: fake.Databases["shop"]["orders"], Total: 2})
+	root = model.(RootModel)
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyTab})
+	root = model.(RootModel)
+
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	root = model.(RootModel)
+	for _, r := range `{"name":"Ana"}` {
+		model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		root = model.(RootModel)
+	}
+
+	model, cmd := root.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	root = model.(RootModel)
+	if cmd == nil {
+		t.Fatal("expected a command (document reload) after applying the filter")
+	}
+	// This is the actual async reload command completing — the same
+	// round-trip that happens for real once bubbletea runs the command.
+	model, _ = root.Update(cmd())
+	root = model.(RootModel)
+
+	if root.docList.FilterText() != `{"name":"Ana"}` {
+		t.Fatalf("expected the applied filter text to survive the reload, got %q", root.docList.FilterText())
+	}
+
+	// Now Esc must actually see a non-empty filter and clear it.
+	model, cmd = root.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	root = model.(RootModel)
+	if root.docList.FilterText() != "" {
+		t.Fatalf("expected Esc to clear the (now correctly non-empty) applied filter, got %q", root.docList.FilterText())
+	}
+	if cmd == nil {
+		t.Fatal("expected a command to reload documents without the filter")
+	}
+}
+
+// TestRootModel_FilterTextSurvivesPagination is a regression test for the
+// same root cause as above: paginating (n/p) also reloads documents via
+// documentsLoadedMsg, and used to wipe the filter indicator even though the
+// underlying query (m.currentFilter()) correctly kept using it.
+func TestRootModel_FilterTextSurvivesPagination(t *testing.T) {
+	fake := mongo.NewFakeClient()
+	docs := make([]bson.M, 25)
+	for i := range docs {
+		docs[i] = bson.M{"_id": fmt.Sprintf("o%d", i), "name": "Ana"}
+	}
+	fake.Databases["shop"] = map[string][]bson.M{"orders": docs}
+	conn := config.Connection{Name: "qa", URI: "mongodb://fake", Color: "verde"}
+	m := NewRootModel(fake, &conn)
+
+	model, _ := m.Update(m.Init()())
+	root := model.(RootModel)
+	root.db = "shop"
+	root.coll = "orders"
+	root.filter = bson.M{"name": "Ana"}
+	root.docList = newDocListModel(docs[:20], 25, 0, 20)
+	root.docList.filter = `{"name":"Ana"}`
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyTab})
+	root = model.(RootModel)
+
+	model, cmd := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	root = model.(RootModel)
+	if cmd == nil {
+		t.Fatal("expected a command (next page load)")
+	}
+	model, _ = root.Update(cmd())
+	root = model.(RootModel)
+
+	if root.docList.FilterText() != `{"name":"Ana"}` {
+		t.Fatalf("expected the filter text to survive pagination, got %q", root.docList.FilterText())
+	}
+}
+
+// TestRootModel_SwitchingCollectionsClearsStaleFilterText is a regression
+// test guarding the fix above from over-preserving: once documentsLoadedMsg
+// stops wiping the filter unconditionally, switching to a different
+// collection must still explicitly clear docList.filter itself (not just
+// RootModel's m.filter) — otherwise a filter applied on collection A would
+// incorrectly still show as "active" after cascading to collection B.
+func TestRootModel_SwitchingCollectionsClearsStaleFilterText(t *testing.T) {
+	fake := mongo.NewFakeClient()
+	fake.Databases["shop"] = map[string][]bson.M{
+		"orders": {{"_id": "o1", "name": "Ana"}},
+		"users":  {{"_id": "u1", "name": "Beto"}},
+	}
+	conn := config.Connection{Name: "qa", URI: "mongodb://fake", Color: "verde"}
+	m := NewRootModel(fake, &conn)
+
+	model, _ := m.Update(m.Init()())
+	root := model.(RootModel)
+	root.collList = newCollectionListModel([]string{"orders", "users"})
+	root.docList.filter = `{"name":"Ana"}`
+	root.focus = panelCollections
+
+	model, cmd := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	root = model.(RootModel)
+	if cmd == nil {
+		t.Fatal("expected a command (indexes+documents load) after moving to a different collection")
+	}
+	if root.docList.FilterText() != "" {
+		t.Fatalf("expected the stale filter text from the previous collection to be cleared immediately, got %q", root.docList.FilterText())
+	}
+}
