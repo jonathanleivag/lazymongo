@@ -163,8 +163,9 @@ func (m *docListModel) exitFuzzyFiltering(selectedID any) {
 
 // applyFuzzyFilter recomputes docs from allDocs using the current
 // fuzzyQuery, matched against each document's rendered _id (the same text
-// labelsFromDocs shows per row — not nested field content, per spec),
-// ordered by fuzzy match quality, and resets cursor to the top result.
+// shown for every collapsed, non-highlighted row — not nested field
+// content, per spec), ordered by fuzzy match quality, and resets cursor to
+// the top result.
 func (m *docListModel) applyFuzzyFilter() {
 	labels := make([]string, len(m.allDocs))
 	for i, doc := range m.allDocs {

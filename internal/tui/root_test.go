@@ -552,3 +552,35 @@ func TestRootModel_CtrlFOnDocumentsPanelIsGuardedByInTextEntry(t *testing.T) {
 		t.Fatal("expected '?' typed during local fuzzy-find to NOT open help")
 	}
 }
+
+func TestRootModel_DocumentsPanelExpandsOnlyHighlightedDocument(t *testing.T) {
+	fake := mongo.NewFakeClient()
+	fake.Databases["shop"] = map[string][]bson.M{
+		"orders": {
+			{"_id": "o1", "total": int32(10)},
+			{"_id": "o2", "total": int32(20)},
+		},
+	}
+	conn := config.Connection{Name: "qa", URI: "mongodb://fake", Color: "verde"}
+	m := NewRootModel(fake, &conn)
+
+	model, _ := m.Update(m.Init()())
+	root := model.(RootModel)
+	root.db = "shop"
+	root.coll = "orders"
+	model, _ = root.Update(documentsLoadedMsg{Docs: fake.Databases["shop"]["orders"], Total: 2})
+	root = model.(RootModel)
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyTab})
+	root = model.(RootModel)
+	if root.focus != panelDocuments {
+		t.Fatalf("precondition failed: expected focus=panelDocuments, got %v", root.focus)
+	}
+
+	view := root.View()
+	if !strings.Contains(view, `total: `) {
+		t.Fatalf("expected the highlighted document's fields to appear in the rendered view, got:\n%s", view)
+	}
+	if !strings.Contains(view, "o1") {
+		t.Fatalf("expected the highlighted document's _id ('o1') to appear, got:\n%s", view)
+	}
+}

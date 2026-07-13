@@ -641,14 +641,14 @@ func (m RootModel) View() string {
 	if m.docList.FuzzyFiltering() {
 		docTitle += " — Buscar: " + m.docList.FuzzyQuery() + "_"
 	}
-	docLines := labelsFromDocs(m.docList.docs)
+	docLines, docCursor := docPanelLines(m.docList.docs, m.docList.cursor)
 	if m.docList.filtering {
 		docLines = append([]string{"Filtro: " + m.docList.filter + "_"}, docLines...)
 	} else if m.docList.filter != "" {
 		docLines = append([]string{"Filtro activo: " + m.docList.filter}, docLines...)
 	}
 	mainHeight := panelHeight*5 - 5
-	main := renderPanel(0, docTitle, docLines, m.docList.cursor, m.focus == panelDocuments, mainWidth, mainHeight)
+	main := renderPanel(0, docTitle, docLines, docCursor, m.focus == panelDocuments, mainWidth, mainHeight)
 
 	footer := "[1-5] panel  [j/k] mover  [Tab] documentos  [/] buscar/filtro  [Ctrl+f] buscar en docs  [Enter] ver  [e] editar  [d] borrar  [?] ayuda  [Ctrl+c] salir"
 
@@ -695,14 +695,6 @@ func labelsFromIndexes(m idxListModel) []string {
 			unique = " (unique)"
 		}
 		labels[i] = fmt.Sprintf("%s %v%s", idx.Name, idx.Key, unique)
-	}
-	return labels
-}
-
-func labelsFromDocs(docs []bson.M) []string {
-	labels := make([]string, len(docs))
-	for i, doc := range docs {
-		labels[i] = fmt.Sprintf("%v", doc["_id"])
 	}
 	return labels
 }
