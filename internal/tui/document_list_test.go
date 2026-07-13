@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -80,5 +81,62 @@ func TestDocListModel_TabSendsSwitchToIndexesMsg(t *testing.T) {
 	}
 	if _, ok := cmd().(switchToIndexesMsg); !ok {
 		t.Fatalf("expected switchToIndexesMsg, got %T", cmd())
+	}
+}
+
+func TestDocListModel_CtrlFOpensLocalFuzzyAndNarrowsRowsByID(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20) // _id "1"/"Ana", _id "2"/"Beto"
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlF})
+	if !m.FuzzyFiltering() {
+		t.Fatal("expected local fuzzy-find to be active after Ctrl+f")
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	if len(m.docs) != 1 || fmt.Sprintf("%v", m.docs[0]["_id"]) != "2" {
+		t.Fatalf("expected only doc '2' to match, got %+v", m.docs)
+	}
+}
+
+func TestDocListModel_EscDuringLocalFuzzyRestoresFullDocs(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlF})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	if len(m.docs) != 1 {
+		t.Fatalf("expected narrowed to 1 doc, got %d", len(m.docs))
+	}
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.FuzzyFiltering() {
+		t.Fatal("expected local fuzzy-find inactive after Esc")
+	}
+	if len(m.docs) != 2 {
+		t.Fatalf("expected full 2-doc set restored after Esc, got %d", len(m.docs))
+	}
+}
+
+func TestDocListModel_LocalFuzzyDoesNotTouchMongoFilterState(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlF})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	if m.filtering || m.filter != "" {
+		t.Fatalf("expected the Mongo query filter state untouched by local fuzzy-find, got filtering=%v filter=%q", m.filtering, m.filter)
+	}
+}
+
+func TestDocListModel_EnterDuringLocalFuzzySendsDocumentChosenMsg(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlF})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected a command on enter during local fuzzy-find")
+	}
+	chosen, ok := cmd().(documentChosenMsg)
+	if !ok || chosen.Doc["_id"] != "2" {
+		t.Fatalf("expected documentChosenMsg for doc '2', got %#v", cmd())
 	}
 }
