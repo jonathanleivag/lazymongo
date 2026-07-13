@@ -6,8 +6,9 @@ const helpText = `lazymongo — atajos
 Tab            saltar a Documentos (o a Indexes si ya estás en Documentos)
 j/k, flechas   moverse dentro del panel enfocado
 Enter          ver documento / conectar (en Conexiones) / entrar
-Esc            cerrar el popup activo
-/              filtrar (en Documentos)
+Esc            cerrar el popup activo / salir de un buscador activo
+/              buscar (fuzzy en Databases/Collections/Indexes/Conexiones; filtro de query Mongo en Documentos)
+Ctrl+f         buscar (fuzzy) entre los documentos ya cargados en pantalla
 n/p            página siguiente/anterior (en Documentos)
 i, a           insertar documento / crear conexión o índice
 e              editar campo (en detalle de documento)

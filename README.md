@@ -23,7 +23,8 @@ Personal TUI for browsing/editing MongoDB, reusing `~/.config/mongo-connections.
 | `j`/`k`, arrows | move within the focused panel |
 | `Enter` | view document / connect (in Conexiones) / enter |
 | `Esc` | close the active popup |
-| `/` | filter documents |
+| `/` | buscar/filtrar: fuzzy-search por nombre en Databases/Collections/Indexes/Conexiones; filtro de query Mongo en Documentos |
+| `Ctrl+f` | fuzzy-search entre los documentos ya cargados en pantalla (no dispara una nueva query) |
 | `n`/`p` | next/previous page |
 | `i`, `a` | insert document / create connection or index |
 | `e` | edit field inline |
@@ -59,6 +60,8 @@ Walk through, confirming each works as expected:
 - [ ] All 5 side panels + Documents panel render on launch, Status panel shows `qa` in its assigned color
 - [ ] `2` focuses Databases; `j`/`k` moves the cursor; Collections panel live-updates as you move
 - [ ] `3` focuses Collections; moving the cursor live-updates Indexes and Documents
+- [ ] `2` focuses Databases; `/` opens fuzzy search, typing narrows the list live, `Esc` restores the full list, `Enter` selects the highlighted database
+- [ ] `5` focuses Conexiones; `/` fuzzy-searches connection names without triggering `a` (create connection) if the query contains the letter "a"
 - [ ] `Tab` focuses Documents; `/` filters, `n`/`p` paginate
 - [ ] `Enter` on a document opens the detail popup; `Esc` closes it, panels underneath are unchanged
 - [ ] `e` on a field in the detail popup opens the inline editor; confirming actually updates the field (verify with `mongosh`/`mgo qa` afterward)

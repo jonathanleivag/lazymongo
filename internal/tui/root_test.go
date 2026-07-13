@@ -348,3 +348,87 @@ func flattenBatchMsg(t *testing.T, msg tea.Msg) []tea.Msg {
 	}
 	return out
 }
+
+func TestRootModel_InTextEntry_TrueWhileFilteringDatabasesPanel(t *testing.T) {
+	m, _ := newTestRootModel()
+	root := *m
+	root.dbList = newDatabaseListModel([]string{"shop", "admin"})
+	root.focus = panelDatabases
+
+	model, _ := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	r := model.(RootModel)
+	if !r.inTextEntry() {
+		t.Fatal("expected inTextEntry to be true while filtering the Databases panel")
+	}
+}
+
+func TestRootModel_DigitDuringFilterAddsToQueryInsteadOfSwitchingFocus(t *testing.T) {
+	m, _ := newTestRootModel()
+	root := *m
+	root.dbList = newDatabaseListModel([]string{"shop-v1", "shop-v2"})
+	root.focus = panelDatabases
+
+	model, _ := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	model, _ = model.(RootModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v2")})
+	r := model.(RootModel)
+	if r.focus != panelDatabases {
+		t.Fatalf("expected focus to remain on Databases while its filter query contains a digit, got %v", r.focus)
+	}
+	if len(r.dbList.Items) != 1 || r.dbList.Items[0].ID != "shop-v2" {
+		t.Fatalf("expected filter to narrow to 'shop-v2', got %+v", r.dbList.Items)
+	}
+}
+
+func TestRootModel_QuestionMarkDuringFilterDoesNotOpenHelp(t *testing.T) {
+	m, _ := newTestRootModel()
+	root := *m
+	root.dbList = newDatabaseListModel([]string{"shop"})
+	root.focus = panelDatabases
+
+	model, _ := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	model, _ = model.(RootModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+	r := model.(RootModel)
+	if r.popup == popupHelp {
+		t.Fatal("expected '?' typed into an active filter query to NOT open help")
+	}
+	if r.dbList.FilterQuery() != "?" {
+		t.Fatalf("expected '?' to be added to the filter query, got %q", r.dbList.FilterQuery())
+	}
+}
+
+func TestRootModel_EscDuringDatabaseFilterRestoresFullListWithoutLeavingPanel(t *testing.T) {
+	m, _ := newTestRootModel()
+	root := *m
+	root.dbList = newDatabaseListModel([]string{"shop", "admin"})
+	root.focus = panelDatabases
+
+	model, _ := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	model, _ = model.(RootModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("adm")})
+	model, _ = model.(RootModel).Update(tea.KeyMsg{Type: tea.KeyEsc})
+	r := model.(RootModel)
+	if r.focus != panelDatabases {
+		t.Fatalf("expected Esc to only clear the filter, not change focus, got focus=%v", r.focus)
+	}
+	if len(r.dbList.Items) != 2 {
+		t.Fatalf("expected full database list restored, got %d items", len(r.dbList.Items))
+	}
+}
+
+func TestRootModel_CtrlFOnDocumentsPanelIsGuardedByInTextEntry(t *testing.T) {
+	m, _ := newTestRootModel()
+	root := *m
+	root.focus = panelDocuments
+	root.docList = newDocListModel([]bson.M{{"_id": "o1"}, {"_id": "o2"}}, 2, 0, 20)
+
+	model, _ := root.Update(tea.KeyMsg{Type: tea.KeyCtrlF})
+	r := model.(RootModel)
+	if !r.inTextEntry() {
+		t.Fatal("expected inTextEntry true after Ctrl+f on Documents")
+	}
+
+	model, _ = r.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+	r2 := model.(RootModel)
+	if r2.popup == popupHelp {
+		t.Fatal("expected '?' typed during local fuzzy-find to NOT open help")
+	}
+}

@@ -195,11 +195,21 @@ func (m RootModel) inTextEntry() bool {
 	switch {
 	case m.focus == panelConnections && m.connPicker.creating:
 		return true
-	case m.focus == panelDocuments && m.docList.filtering:
+	case m.focus == panelConnections && m.connPicker.list.Filtering():
 		return true
-	case m.popup == popupFieldEdit && !m.fieldEdit.confirming:
+	case m.focus == panelDatabases && m.dbList.Filtering():
+		return true
+	case m.focus == panelCollections && m.collList.Filtering():
 		return true
 	case m.focus == panelIndexes && m.idxList.creating:
+		return true
+	case m.focus == panelIndexes && m.idxList.Filtering():
+		return true
+	case m.focus == panelDocuments && m.docList.filtering:
+		return true
+	case m.focus == panelDocuments && m.docList.FuzzyFiltering():
+		return true
+	case m.popup == popupFieldEdit && !m.fieldEdit.confirming:
 		return true
 	}
 	return false
@@ -228,7 +238,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.popup = popupHelp
 			return m, nil
 		}
-		if m.popup == popupNone {
+		if m.popup == popupNone && !m.inTextEntry() {
 			switch keyMsg.String() {
 			case "1":
 				m.focus = panelStatus
@@ -601,13 +611,34 @@ func (m RootModel) View() string {
 	panelHeight := 5
 
 	statusLines := []string{colorStyle(m.conn.Color).Render(m.conn.Name), fmt.Sprintf("%s.%s", m.db, m.coll)}
+
+	dbTitle := "Databases"
+	if m.dbList.Filtering() {
+		dbTitle = "Databases — Buscar: " + m.dbList.FilterQuery() + "_"
+	}
+	collTitle := "Collections"
+	if m.collList.Filtering() {
+		collTitle = "Collections — Buscar: " + m.collList.FilterQuery() + "_"
+	}
+	idxTitle := "Indexes"
+	if m.idxList.Filtering() {
+		idxTitle = "Indexes — Buscar: " + m.idxList.FilterQuery() + "_"
+	}
+	connTitle := "Conexiones"
+	if m.connPicker.list.Filtering() {
+		connTitle = "Conexiones — Buscar: " + m.connPicker.list.FilterQuery() + "_"
+	}
+
 	p1 := renderPanel(1, "Status", statusLines, 0, m.focus == panelStatus, sidebarWidth, panelHeight)
-	p2 := renderPanel(2, "Databases", labelsFromListModel(m.dbList), m.dbList.Cursor, m.focus == panelDatabases, sidebarWidth, panelHeight)
-	p3 := renderPanel(3, "Collections", labelsFromListModel(m.collList), m.collList.Cursor, m.focus == panelCollections, sidebarWidth, panelHeight)
-	p4 := renderPanel(4, "Indexes", labelsFromIndexes(m.idxList.indexes), m.idxList.cursor, m.focus == panelIndexes, sidebarWidth, panelHeight)
-	p5 := renderPanel(5, "Conexiones", labelsFromListModel(m.connPicker.list), m.connPicker.list.Cursor, m.focus == panelConnections, sidebarWidth, panelHeight)
+	p2 := renderPanel(2, dbTitle, labelsFromListModel(m.dbList), m.dbList.Cursor, m.focus == panelDatabases, sidebarWidth, panelHeight)
+	p3 := renderPanel(3, collTitle, labelsFromListModel(m.collList), m.collList.Cursor, m.focus == panelCollections, sidebarWidth, panelHeight)
+	p4 := renderPanel(4, idxTitle, labelsFromIndexes(m.idxList), m.idxList.cursor, m.focus == panelIndexes, sidebarWidth, panelHeight)
+	p5 := renderPanel(5, connTitle, labelsFromListModel(m.connPicker.list), m.connPicker.list.Cursor, m.focus == panelConnections, sidebarWidth, panelHeight)
 
 	docTitle := fmt.Sprintf("Documentos (%d total, pág %d)", m.docList.total, m.docList.page+1)
+	if m.docList.FuzzyFiltering() {
+		docTitle += " — Buscar: " + m.docList.FuzzyQuery() + "_"
+	}
 	docLines := labelsFromDocs(m.docList.docs)
 	if m.docList.filtering {
 		docLines = append([]string{"Filtro: " + m.docList.filter + "_"}, docLines...)
@@ -617,14 +648,20 @@ func (m RootModel) View() string {
 	mainHeight := panelHeight*5 - 5
 	main := renderPanel(0, docTitle, docLines, m.docList.cursor, m.focus == panelDocuments, mainWidth, mainHeight)
 
-	footer := "[1-5] panel  [j/k] mover  [Tab] documentos  [Enter] ver  [e] editar  [d] borrar  [/] filtro  [?] ayuda  [Ctrl+c] salir"
+	footer := "[1-5] panel  [j/k] mover  [Tab] documentos  [/] buscar/filtro  [Ctrl+f] buscar en docs  [Enter] ver  [e] editar  [d] borrar  [?] ayuda  [Ctrl+c] salir"
 
 	return composeScreen([]string{p1, p2, p3, p4, p5}, main, lastLogLines(m.log, 4), footer, mainWidth, 4)
 }
 
 // labelsFromListModel renders each item's colored label as a plain line for
-// panel display (no cursor/border chrome — renderPanel adds that).
+// panel display (no cursor/border chrome — renderPanel adds that). While
+// filtering with no matches, a single placeholder line is shown instead of
+// an empty list — safe because there's no real selection to misalign
+// against an empty item set.
 func labelsFromListModel(m listModel) []string {
+	if m.Filtering() && len(m.Items) == 0 {
+		return []string{helpHintStyle.Render("(sin coincidencias)")}
+	}
 	labels := make([]string, len(m.Items))
 	for i, item := range m.Items {
 		labels[i] = colorStyle(item.Color).Render(item.Label)
@@ -632,9 +669,12 @@ func labelsFromListModel(m listModel) []string {
 	return labels
 }
 
-func labelsFromIndexes(indexes []mongo.IndexInfo) []string {
-	labels := make([]string, len(indexes))
-	for i, idx := range indexes {
+func labelsFromIndexes(m idxListModel) []string {
+	if m.Filtering() && len(m.indexes) == 0 {
+		return []string{helpHintStyle.Render("(sin coincidencias)")}
+	}
+	labels := make([]string, len(m.indexes))
+	for i, idx := range m.indexes {
 		unique := ""
 		if idx.Unique {
 			unique = " (unique)"
