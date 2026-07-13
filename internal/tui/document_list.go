@@ -13,6 +13,7 @@ import (
 type documentChosenMsg struct{ Doc bson.M }
 type pageChangedMsg struct{ Page int64 }
 type filterSubmittedMsg struct{ Filter string }
+type filterClearedMsg struct{}
 type insertRequestedMsg struct{}
 type switchToIndexesMsg struct{}
 
@@ -197,7 +198,13 @@ func (m docListModel) Update(msg tea.Msg) (docListModel, tea.Cmd) {
 		return m, func() tea.Msg { return insertRequestedMsg{} }
 	case "tab":
 		return m, func() tea.Msg { return switchToIndexesMsg{} }
-	case "esc", "h":
+	case "esc":
+		if m.filter != "" {
+			m.filter = ""
+			return m, func() tea.Msg { return filterClearedMsg{} }
+		}
+		return m, func() tea.Msg { return listBackMsg{} }
+	case "h":
 		return m, func() tea.Msg { return listBackMsg{} }
 	}
 	return m, nil

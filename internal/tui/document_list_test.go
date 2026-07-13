@@ -444,3 +444,51 @@ func TestDocListModel_FilterBeforeAndAfterCursorSplitCorrectly(t *testing.T) {
 		t.Fatalf("expected text after cursor to be '}', got %q", m.FilterAfterCursor())
 	}
 }
+
+func TestDocListModel_EscWithAppliedFilterClearsItAndEmitsFilterClearedMsg(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+	m.filter = `{"name":"Ana"}`
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd == nil {
+		t.Fatal("expected a command on Esc with an applied filter")
+	}
+	if _, ok := cmd().(filterClearedMsg); !ok {
+		t.Fatalf("expected filterClearedMsg, got %T", cmd())
+	}
+}
+
+func TestDocListModel_EscWithAppliedFilterClearsFilterText(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+	m.filter = `{"name":"Ana"}`
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.FilterText() != "" {
+		t.Fatalf("expected filter text cleared after Esc, got %q", m.FilterText())
+	}
+}
+
+func TestDocListModel_EscWithNoAppliedFilterSendsListBackMsg(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd == nil {
+		t.Fatal("expected a command on Esc with no applied filter")
+	}
+	if _, ok := cmd().(listBackMsg); !ok {
+		t.Fatalf("expected listBackMsg (unchanged behavior), got %T", cmd())
+	}
+}
+
+func TestDocListModel_HKeyStillSendsListBackMsgRegardlessOfFilter(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+	m.filter = `{"name":"Ana"}`
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+	if cmd == nil {
+		t.Fatal("expected a command on 'h'")
+	}
+	if _, ok := cmd().(listBackMsg); !ok {
+		t.Fatalf("expected 'h' to keep sending listBackMsg even with an applied filter, got %T", cmd())
+	}
+}

@@ -507,6 +507,11 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.filter = filter
 				m.logf("Filtro aplicado: %s", out.Filter)
 				return m, m.loadDocuments(filter)
+			case filterClearedMsg:
+				m.filter = nil
+				m.page = 0
+				m.logf("Filtro removido")
+				return m, m.loadDocuments(bson.M{})
 			case documentChosenMsg:
 				m.docDetail = newDocDetailModel(out.Doc)
 				m.popup = popupDocDetail
@@ -644,7 +649,8 @@ func (m RootModel) View() string {
 	docLines, docCursor := docPanelLines(m.docList.docs, m.docList.cursor)
 	if m.docList.filtering {
 		suggestion := helpHintStyle.Render(m.docList.FilterSuggestion())
-		docLines = append([]string{"Filtro: " + m.docList.filter + suggestion + "_"}, docLines...)
+		line := "Filtro: " + m.docList.FilterBeforeCursor() + "_" + suggestion + m.docList.FilterAfterCursor()
+		docLines = append([]string{line}, docLines...)
 	} else if m.docList.filter != "" {
 		docLines = append([]string{"Filtro activo: " + m.docList.filter}, docLines...)
 	}

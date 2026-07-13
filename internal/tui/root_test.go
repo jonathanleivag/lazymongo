@@ -613,7 +613,72 @@ func TestRootModel_DocumentsFilterShowsInlineSuggestion(t *testing.T) {
 	if !strings.Contains(view, `Filtro: {"nam`) {
 		t.Fatalf("expected the typed filter text to appear, got:\n%s", view)
 	}
-	if !strings.Contains(view, `{"name`) {
-		t.Fatalf("expected the suggestion 'e' to appear appended right after the typed text, got:\n%s", view)
+	if !strings.Contains(view, "nam_e") {
+		t.Fatalf("expected the cursor marker '_' followed by the suggestion 'e' right after the typed text, got:\n%s", view)
+	}
+}
+
+func TestRootModel_EscWithAppliedFilterClearsAndReloadsDocuments(t *testing.T) {
+	fake := mongo.NewFakeClient()
+	fake.Databases["shop"] = map[string][]bson.M{
+		"orders": {{"_id": "o1", "name": "Ana"}, {"_id": "o2", "name": "Beto"}},
+	}
+	conn := config.Connection{Name: "qa", URI: "mongodb://fake", Color: "verde"}
+	m := NewRootModel(fake, &conn)
+
+	model, _ := m.Update(m.Init()())
+	root := model.(RootModel)
+	root.db = "shop"
+	root.coll = "orders"
+	root.filter = bson.M{"name": "Ana"}
+	model, _ = root.Update(documentsLoadedMsg{Docs: []bson.M{{"_id": "o1", "name": "Ana"}}, Total: 1})
+	root = model.(RootModel)
+	root.docList.filter = `{"name":"Ana"}`
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyTab})
+	root = model.(RootModel)
+	if root.focus != panelDocuments {
+		t.Fatalf("precondition failed: expected focus=panelDocuments, got %v", root.focus)
+	}
+
+	model, cmd := root.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	root = model.(RootModel)
+	if root.docList.FilterText() != "" {
+		t.Fatalf("expected the applied filter text cleared, got %q", root.docList.FilterText())
+	}
+	if cmd == nil {
+		t.Fatal("expected a command to reload documents")
+	}
+	model, _ = root.Update(cmd())
+	root = model.(RootModel)
+	if len(root.docList.docs) != 2 {
+		t.Fatalf("expected all 2 documents reloaded without the filter, got %+v", root.docList.docs)
+	}
+}
+
+func TestRootModel_DocumentsFilterCursorMarkerAtRealPosition(t *testing.T) {
+	fake := mongo.NewFakeClient()
+	fake.Databases["shop"] = map[string][]bson.M{
+		"orders": {{"_id": "o1", "name": "Ana"}},
+	}
+	conn := config.Connection{Name: "qa", URI: "mongodb://fake", Color: "verde"}
+	m := NewRootModel(fake, &conn)
+
+	model, _ := m.Update(m.Init()())
+	root := model.(RootModel)
+	root.db = "shop"
+	root.coll = "orders"
+	model, _ = root.Update(documentsLoadedMsg{Docs: fake.Databases["shop"]["orders"], Total: 1})
+	root = model.(RootModel)
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyTab})
+	root = model.(RootModel)
+
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	root = model.(RootModel)
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("{")})
+	root = model.(RootModel)
+
+	view := root.View()
+	if !strings.Contains(view, "Filtro: {_}") {
+		t.Fatalf("expected the cursor marker between the auto-closed braces, got:\n%s", view)
 	}
 }
