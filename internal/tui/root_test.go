@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -775,6 +777,77 @@ func TestRootModel_FilterTextSurvivesPagination(t *testing.T) {
 
 	if root.docList.FilterText() != `{"name":"Ana"}` {
 		t.Fatalf("expected the filter text to survive pagination, got %q", root.docList.FilterText())
+	}
+}
+
+func TestRootModel_ConnectionUpdatedMsgReloadsConnectionsList(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "mongo-connections.sh")
+	fixture := "declare -A MONGO_CONNECTIONS=(\n  [qa]=\"mongodb://localhost:27017/test\"\n)\n\ndeclare -A MONGO_CONNECTION_COLORS=(\n  [qa]=\"verde\"\n)\n"
+	if err := os.WriteFile(tmp, []byte(fixture), 0600); err != nil {
+		t.Fatalf("writing fixture: %v", err)
+	}
+	restore := config.SetConnectionsFileForTesting(tmp)
+	defer restore()
+
+	m, _ := newTestRootModel()
+	root := *m
+
+	model, _ := root.Update(connectionUpdatedMsg{Conn: config.Connection{Name: "qa", URI: "mongodb://localhost:27017/test", Color: "verde"}})
+	root = model.(RootModel)
+	if len(root.connPicker.list.Items) != 1 || root.connPicker.list.Items[0].ID != "qa" {
+		t.Fatalf("expected connections list reloaded with 'qa', got %+v", root.connPicker.list.Items)
+	}
+}
+
+func TestRootModel_ConnectionDeletedMsgReloadsConnectionsList(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "mongo-connections.sh")
+	fixture := "declare -A MONGO_CONNECTIONS=(\n  [staging]=\"mongodb://localhost:27017/staging\"\n)\n"
+	if err := os.WriteFile(tmp, []byte(fixture), 0600); err != nil {
+		t.Fatalf("writing fixture: %v", err)
+	}
+	restore := config.SetConnectionsFileForTesting(tmp)
+	defer restore()
+
+	m, _ := newTestRootModel()
+	root := *m
+
+	model, _ := root.Update(connectionDeletedMsg{Name: "qa"})
+	root = model.(RootModel)
+	if len(root.connPicker.list.Items) != 1 || root.connPicker.list.Items[0].ID != "staging" {
+		t.Fatalf("expected connections list reloaded with only 'staging', got %+v", root.connPicker.list.Items)
+	}
+}
+
+func TestRootModel_ConnectionUpdateErrMsgSetsErr(t *testing.T) {
+	m, _ := newTestRootModel()
+	root := *m
+
+	model, _ := root.Update(connectionUpdateErrMsg{Err: fmt.Errorf("boom")})
+	root = model.(RootModel)
+	if root.err == nil {
+		t.Fatal("expected root.err to be set after connectionUpdateErrMsg")
+	}
+}
+
+func TestRootModel_ConnectionDeleteErrMsgSetsErr(t *testing.T) {
+	m, _ := newTestRootModel()
+	root := *m
+
+	model, _ := root.Update(connectionDeleteErrMsg{Err: fmt.Errorf("boom")})
+	root = model.(RootModel)
+	if root.err == nil {
+		t.Fatal("expected root.err to be set after connectionDeleteErrMsg")
+	}
+}
+
+func TestRootModel_InTextEntry_TrueWhileEditingConnection(t *testing.T) {
+	m, _ := newTestRootModel()
+	root := *m
+	root.focus = panelConnections
+	root.connPicker.editing = true
+
+	if !root.inTextEntry() {
+		t.Fatal("expected inTextEntry to be true while editing a connection")
 	}
 }
 

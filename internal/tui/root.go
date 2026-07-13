@@ -195,6 +195,8 @@ func (m RootModel) inTextEntry() bool {
 	switch {
 	case m.focus == panelConnections && m.connPicker.creating:
 		return true
+	case m.focus == panelConnections && m.connPicker.editing:
+		return true
 	case m.focus == panelConnections && m.connPicker.list.Filtering():
 		return true
 	case m.focus == panelDatabases && m.dbList.Filtering():
@@ -294,6 +296,32 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case connectionCreateErrMsg:
+		m.err = msg.Err
+		return m, nil
+
+	case connectionUpdatedMsg:
+		conns, err := config.ListConnections()
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		m.connPicker = newConnectionPickerModel(conns)
+		return m, nil
+
+	case connectionUpdateErrMsg:
+		m.err = msg.Err
+		return m, nil
+
+	case connectionDeletedMsg:
+		conns, err := config.ListConnections()
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		m.connPicker = newConnectionPickerModel(conns)
+		return m, nil
+
+	case connectionDeleteErrMsg:
 		m.err = msg.Err
 		return m, nil
 
@@ -608,7 +636,7 @@ func (m RootModel) View() string {
 		return renderPopupOverlay(helpModel{}.View(), m.width, m.height)
 	}
 
-	if m.focus == panelConnections && m.connPicker.creating {
+	if m.focus == panelConnections && (m.connPicker.creating || m.connPicker.editing || m.connPicker.confirmingDelete) {
 		return renderPopupOverlay(m.connPicker.View(), m.width, m.height)
 	}
 	if m.focus == panelIndexes && (m.idxList.creating || m.idxList.confirmingDrop) {

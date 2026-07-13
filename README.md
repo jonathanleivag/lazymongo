@@ -27,7 +27,7 @@ Personal TUI for browsing/editing MongoDB, reusing `~/.config/mongo-connections.
 | `Ctrl+f` | fuzzy-search entre los documentos ya cargados en pantalla (no dispara una nueva query) |
 | `n`/`p` | next/previous page |
 | `i`, `a` | insert document / create connection or index |
-| `e` | edit field inline |
+| `e` | edit field inline (document detail popup) / edit a connection's URI and color (Conexiones panel — name stays fixed) |
 | `E` | edit full document in `$EDITOR` |
 | `d`, `x` | delete (always confirms) |
 | `?` | help |
@@ -70,6 +70,8 @@ Walk through, confirming each works as expected:
 - [ ] `d` on a document opens the delete confirmation popup
 - [ ] `4` focuses Indexes; `a` opens the create-index popup, `d` drops one (both confirm first)
 - [ ] `5` focuses Conexiones; `Enter` on a different saved connection reconnects
+- [ ] `e` on a connection opens the edit form pre-filled with its current URI/color; `Enter` saves, `Esc` cancels; the name field cannot be typed into
+- [ ] `d`/`x` on a connection opens a delete confirmation; confirming removes it from the list
 - [ ] `?` opens/closes help; `Ctrl+c` quits cleanly
 - [ ] The command log shows connect/filter/write history
 
