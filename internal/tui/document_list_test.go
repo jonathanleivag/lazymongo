@@ -241,7 +241,7 @@ func TestDocListModel_TabAcceptsFilterSuggestion(t *testing.T) {
 	}
 
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	if m.FilterText() != `{"name` {
+	if m.FilterText() != `{"name"}` {
 		t.Fatalf("expected Tab to accept the suggestion, got filter %q", m.FilterText())
 	}
 }
@@ -256,7 +256,7 @@ func TestDocListModel_TabWithNoSuggestionDoesNotCorruptFilter(t *testing.T) {
 	}
 
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	if m.FilterText() != `{"zzz` {
+	if m.FilterText() != `{"zzz"}` {
 		t.Fatalf("expected Tab with no suggestion to leave the filter unchanged, got %q", m.FilterText())
 	}
 }
@@ -399,5 +399,48 @@ func TestDocListModel_InsertAndBackspaceHandleMultiByteRunesSafely(t *testing.T)
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	if m.FilterText() != "" {
 		t.Fatalf("expected backspace to remove the whole rune 'ó', got %q", m.FilterText())
+	}
+}
+
+func TestFilterFieldSuggestion_ViaAccessorIgnoresTextAfterCursor(t *testing.T) {
+	docs := []bson.M{{"_id": "1", "name": "Ana"}}
+	m := newDocListModel(docs, 1, 0, 20)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("{")})
+	for _, r := range `"nam` {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if m.FilterText() != `{"nam"}` {
+		t.Fatalf(`precondition failed: expected filter '{"nam"}' with cursor before the closing quote, got %q`, m.FilterText())
+	}
+	if m.FilterSuggestion() != "e" {
+		t.Fatalf(`expected suggestion 'e' for the key typed before the cursor, ignoring the trailing '"}', got %q`, m.FilterSuggestion())
+	}
+}
+
+func TestDocListModel_TabInsertsSuggestionAtCursorNotAtEnd(t *testing.T) {
+	docs := []bson.M{{"_id": "1", "name": "Ana"}}
+	m := newDocListModel(docs, 1, 0, 20)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("{")})
+	for _, r := range `"nam` {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if m.FilterText() != `{"name"}` {
+		t.Fatalf(`expected Tab to insert "e" at the cursor (before the closing quote), got %q`, m.FilterText())
+	}
+}
+
+func TestDocListModel_FilterBeforeAndAfterCursorSplitCorrectly(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("{")})
+	if m.FilterBeforeCursor() != "{" {
+		t.Fatalf("expected text before cursor to be '{', got %q", m.FilterBeforeCursor())
+	}
+	if m.FilterAfterCursor() != "}" {
+		t.Fatalf("expected text after cursor to be '}', got %q", m.FilterAfterCursor())
 	}
 }

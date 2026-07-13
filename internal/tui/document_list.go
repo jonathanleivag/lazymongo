@@ -50,12 +50,39 @@ func (m docListModel) FuzzyFiltering() bool { return m.fuzzyFiltering }
 // FuzzyQuery returns the text typed so far into the active local fuzzy-find.
 func (m docListModel) FuzzyQuery() string { return m.fuzzyQuery }
 
+// textBeforeCursor returns the filter text up to (not including) the
+// character at filterCursor.
+func (m docListModel) textBeforeCursor() string {
+	text := []rune(m.filter)
+	if m.filterCursor > len(text) {
+		return m.filter
+	}
+	return string(text[:m.filterCursor])
+}
+
+// textAfterCursor returns the filter text from filterCursor onward.
+func (m docListModel) textAfterCursor() string {
+	text := []rune(m.filter)
+	if m.filterCursor > len(text) {
+		return ""
+	}
+	return string(text[m.filterCursor:])
+}
+
 // FilterSuggestion returns the missing suffix of the best-matching
 // top-level field name for whatever partial key is currently being typed
-// into the Mongo filter, or "" if none applies. See filterFieldSuggestion.
+// into the Mongo filter, considering only the text before the cursor (text
+// after it — e.g. an auto-closed "}" — is irrelevant to what key is being
+// typed), or "" if none applies. See filterFieldSuggestion.
 func (m docListModel) FilterSuggestion() string {
-	return filterFieldSuggestion(m.filter, m.docs)
+	return filterFieldSuggestion(m.textBeforeCursor(), m.docs)
 }
+
+// FilterBeforeCursor and FilterAfterCursor split the filter text at the
+// cursor for rendering: RootModel draws the cursor-blink marker at the real
+// cursor position instead of always at the end of the string.
+func (m docListModel) FilterBeforeCursor() string { return m.textBeforeCursor() }
+func (m docListModel) FilterAfterCursor() string  { return m.textAfterCursor() }
 
 func (m docListModel) Update(msg tea.Msg) (docListModel, tea.Cmd) {
 	keyMsg, ok := msg.(tea.KeyMsg)
@@ -75,7 +102,16 @@ func (m docListModel) Update(msg tea.Msg) (docListModel, tea.Cmd) {
 			m.filter = ""
 			m.filterCursor = 0
 		case tea.KeyTab:
-			m.filter += filterFieldSuggestion(m.filter, m.docs)
+			suggestion := []rune(filterFieldSuggestion(m.textBeforeCursor(), m.docs))
+			if len(suggestion) > 0 {
+				text := []rune(m.filter)
+				newText := make([]rune, 0, len(text)+len(suggestion))
+				newText = append(newText, text[:m.filterCursor]...)
+				newText = append(newText, suggestion...)
+				newText = append(newText, text[m.filterCursor:]...)
+				m.filter = string(newText)
+				m.filterCursor += len(suggestion)
+			}
 		case tea.KeyLeft:
 			if m.filterCursor > 0 {
 				m.filterCursor--
