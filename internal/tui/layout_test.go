@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestRenderPopupOverlay_ContainsContent(t *testing.T) {
@@ -17,6 +19,34 @@ func TestRenderPopupOverlay_FillsRequestedHeight(t *testing.T) {
 	lines := strings.Split(out, "\n")
 	if len(lines) != 24 {
 		t.Fatalf("expected overlay to be exactly 24 lines tall, got %d", len(lines))
+	}
+}
+
+// TestRenderPopupOverlay_WrapsLongContentWithoutExceedingWidth is a
+// regression test found via manual testing: a form field showing a real,
+// long MongoDB URI (a multi-host replica-set string with no spaces to
+// break on) overflowed the terminal — the popup box had no width
+// constraint, so it auto-sized to the widest line regardless of the actual
+// terminal width, and the extra columns rendered past the terminal's right
+// edge instead of wrapping.
+func TestRenderPopupOverlay_WrapsLongContentWithoutExceedingWidth(t *testing.T) {
+	long := "mongodb://user:pass@172.16.1.20:27017,192.168.22.143:27017,172.20.1.41:27017,172.20.1.42:27017/db"
+	out := renderPopupOverlay(long, 100, 24)
+	for _, line := range strings.Split(out, "\n") {
+		if w := lipgloss.Width(line); w > 100 {
+			t.Fatalf("expected no rendered line wider than the requested terminal width (100), got %d in line %q", w, line)
+		}
+	}
+}
+
+// TestRenderPopupOverlay_ShortContentUnaffected proves the fix above is
+// scoped to only-when-needed: content that already fits renders exactly as
+// before, with no forced padding to some fixed width.
+func TestRenderPopupOverlay_ShortContentUnaffected(t *testing.T) {
+	short := "¿Borrar la conexión \"qa\"? (y/n)"
+	out := renderPopupOverlay(short, 100, 24)
+	if !strings.Contains(out, short) {
+		t.Fatalf("expected short content to render unchanged (single line, no wrapping), got:\n%s", out)
 	}
 }
 
