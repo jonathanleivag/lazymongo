@@ -64,6 +64,18 @@ actions — these shortcuts must be gated behind `!filtering`.
 - **`internal/tui/root.go`**: `inTextEntry()` gains the new cases (`filtering`
   in any of the 4 list panels, `fuzzyFiltering` in Documents) so global keys
   like `?` don't interrupt an in-progress search. Footer/help text updated.
+
+  **Second deviation (found while writing the implementation plan, approved
+  by the owner):** today the global `1`-`5` panel-jump and `Tab` shortcuts
+  are checked BEFORE dispatch to the focused panel's own `Update`, gated
+  only by `m.popup == popupNone` — not by `inTextEntry()`. This is already a
+  latent bug (typing a Mongo filter containing a digit 1-5 ejects you to a
+  different panel instead of adding it to the filter text), but this feature
+  makes it far more likely to bite: real names like `haddacloud-v2` or
+  `email_1` (both used as examples in this project's own mockups) contain
+  digits, so searching for them with the new fuzzy-find would eject the user
+  mid-search. Fix: gate `1`-`5` and `Tab` behind `!m.inTextEntry()` too, the
+  same protection `?` already has.
 - **`go.mod`**: add `github.com/sahilm/fuzzy` as a direct dependency.
 
 ## Rendering
