@@ -175,6 +175,92 @@ func TestRootModel_CursorMoveInDatabasesCascadesToCollections(t *testing.T) {
 	}
 }
 
+// TestRootModel_FuzzyFilterInDatabasesCascadesEvenWhenCursorStaysAtZero is a
+// regression test for a bug reported after shipping fuzzy search: the
+// Databases/Collections cascade used to fire only when the numeric cursor
+// index changed. Fuzzy filtering always resets Cursor to 0 on every
+// keystroke, so narrowing straight to a match at index 0 (a very common
+// case — e.g. the first keystroke already narrows to the desired item) left
+// the cursor index unchanged even though the highlighted database changed,
+// so the cascade never fired: Collections/Documents never loaded for the
+// searched-for database, and since Enter is intentionally a no-op on this
+// panel (cascade is supposed to already have happened), the search appeared
+// to do nothing at all.
+func TestRootModel_FuzzyFilterInDatabasesCascadesEvenWhenCursorStaysAtZero(t *testing.T) {
+	root, _ := rootModelAtDatabasesFocus(t)
+
+	model, _ := root.Update(connectedMsg{Databases: []string{"admin", "shop"}})
+	root = model.(RootModel)
+	if root.dbList.Cursor != 0 || root.dbList.Items[0].ID != "admin" {
+		t.Fatalf("precondition failed: expected cursor 0 on 'admin', got cursor=%d items=%+v", root.dbList.Cursor, root.dbList.Items)
+	}
+
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	root = model.(RootModel)
+	model, cmd := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("shop")})
+	root = model.(RootModel)
+	if root.dbList.Cursor != 0 || len(root.dbList.Items) != 1 || root.dbList.Items[0].ID != "shop" {
+		t.Fatalf("precondition failed: expected filter narrowed to 'shop' at cursor 0, got cursor=%d items=%+v", root.dbList.Cursor, root.dbList.Items)
+	}
+	if cmd == nil {
+		t.Fatal("expected a command (collections load) after fuzzy-filtering to a different database, even though the cursor index stayed at 0")
+	}
+
+	model, _ = root.Update(cmd())
+	root = model.(RootModel)
+	if root.db != "shop" {
+		t.Fatalf("expected m.db updated to 'shop' after fuzzy-filtering, got %q", root.db)
+	}
+	if len(root.collList.Items) != 1 || root.collList.Items[0].ID != "orders" {
+		t.Fatalf("expected 1 collection loaded for 'shop', got %+v", root.collList.Items)
+	}
+}
+
+// TestRootModel_FuzzyFilterInCollectionsCascadesEvenWhenCursorStaysAtZero is
+// the Collections-panel counterpart of the Databases regression above — the
+// exact scenario the project owner reported: searching for a collection by
+// name and having nothing happen.
+func TestRootModel_FuzzyFilterInCollectionsCascadesEvenWhenCursorStaysAtZero(t *testing.T) {
+	fake := mongo.NewFakeClient()
+	fake.Databases["shop"] = map[string][]bson.M{
+		"logs":   {},
+		"orders": {{"_id": "o1", "total": int32(10)}},
+	}
+	conn := config.Connection{Name: "qa", URI: "mongodb://fake", Color: "verde"}
+	m := NewRootModel(fake, &conn)
+
+	model, _ := m.Update(m.Init()())
+	root := model.(RootModel)
+	root.db = "shop"
+	root.focus = panelCollections
+	// FakeClient.ListCollections iterates a Go map, so its order is not
+	// deterministic — build collList directly with a fixed order instead of
+	// depending on that order to land "logs" at cursor 0.
+	root.collList = newCollectionListModel([]string{"logs", "orders"})
+
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	root = model.(RootModel)
+	model, cmd := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("orders")})
+	root = model.(RootModel)
+	if root.collList.Cursor != 0 || len(root.collList.Items) != 1 || root.collList.Items[0].ID != "orders" {
+		t.Fatalf("precondition failed: expected filter narrowed to 'orders' at cursor 0, got cursor=%d items=%+v", root.collList.Cursor, root.collList.Items)
+	}
+	if cmd == nil {
+		t.Fatal("expected a command (indexes+documents load) after fuzzy-filtering to a different collection, even though the cursor index stayed at 0")
+	}
+
+	for _, bm := range flattenBatchMsg(t, cmd()) {
+		model, _ = root.Update(bm)
+		root = model.(RootModel)
+	}
+	if root.coll != "orders" {
+		t.Fatalf("expected m.coll updated to 'orders' after fuzzy-filtering, got %q", root.coll)
+	}
+	if len(root.docList.docs) != 1 || root.docList.docs[0]["_id"] != "o1" {
+		t.Fatalf("expected 1 document loaded for 'orders', got %+v", root.docList.docs)
+	}
+}
+
 func TestRootModel_PopupHelpTogglesOnQuestionMark(t *testing.T) {
 	m, _ := newTestRootModel()
 	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})

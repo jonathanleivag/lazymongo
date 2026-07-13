@@ -450,11 +450,12 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// don't handle it here: cursor movement above already cascades into loading
 		// collections for the highlighted database, so Enter has nothing left to do.
 		// Do not "fix" this into an itemSelectedMsg handler.
-		before := m.dbList.Cursor
+		beforeID := highlightedItemID(m.dbList.Items, m.dbList.Cursor)
 		var listCmd tea.Cmd
 		m.dbList, listCmd = m.dbList.Update(msg)
-		if m.dbList.Cursor != before && len(m.dbList.Items) > 0 {
-			m.db = m.dbList.Items[m.dbList.Cursor].ID
+		afterID := highlightedItemID(m.dbList.Items, m.dbList.Cursor)
+		if afterID != "" && afterID != beforeID {
+			m.db = afterID
 			return m, m.loadCollections()
 		}
 		return m, listCmd
@@ -463,11 +464,12 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Same as panelDatabases above: Enter is a silent no-op by design, since
 		// cursor movement already cascades into loading indexes/documents for the
 		// highlighted collection.
-		before := m.collList.Cursor
+		beforeID := highlightedItemID(m.collList.Items, m.collList.Cursor)
 		var listCmd tea.Cmd
 		m.collList, listCmd = m.collList.Update(msg)
-		if m.collList.Cursor != before && len(m.collList.Items) > 0 {
-			m.coll = m.collList.Items[m.collList.Cursor].ID
+		afterID := highlightedItemID(m.collList.Items, m.collList.Cursor)
+		if afterID != "" && afterID != beforeID {
+			m.coll = afterID
 			m.page = 0
 			m.filter = nil
 			return m, tea.Batch(m.loadIndexes(), m.loadDocuments(bson.M{}))
@@ -651,6 +653,19 @@ func (m RootModel) View() string {
 	footer := "[1-5] panel  [j/k] mover  [Tab] documentos  [/] buscar/filtro  [Ctrl+f] buscar en docs  [Enter] ver  [e] editar  [d] borrar  [?] ayuda  [Ctrl+c] salir"
 
 	return composeScreen([]string{p1, p2, p3, p4, p5}, main, lastLogLines(m.log, 4), footer, mainWidth, 4)
+}
+
+// highlightedItemID returns the ID of the item at cursor, or "" if items is
+// empty or cursor is out of range. The Databases/Collections cascade compares
+// this across an Update call rather than comparing the raw cursor index,
+// because fuzzy filtering resets Cursor to 0 on every keystroke — comparing
+// cursor values alone would miss every case where the item at index 0
+// changes underneath a cursor that never numerically moves.
+func highlightedItemID(items []listItem, cursor int) string {
+	if cursor < 0 || cursor >= len(items) {
+		return ""
+	}
+	return items[cursor].ID
 }
 
 // labelsFromListModel renders each item's colored label as a plain line for
