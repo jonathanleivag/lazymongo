@@ -163,3 +163,100 @@ func TestDocListModel_EnterDuringLocalFuzzyExitsFuzzyFilteringMode(t *testing.T)
 		t.Fatalf("expected cursor to point at the selected doc '2' in the restored set, got %+v at cursor %d", m.docs, m.cursor)
 	}
 }
+
+func TestFilterFieldSuggestion_SuggestsRemainderAfterOpenBraceQuote(t *testing.T) {
+	docs := []bson.M{{"_id": "1", "name": "Ana"}, {"_id": "2", "name": "Beto"}}
+	suggestion := filterFieldSuggestion(`{"nam`, docs)
+	if suggestion != "e" {
+		t.Fatalf("expected suggestion 'e' completing 'name', got %q", suggestion)
+	}
+}
+
+func TestFilterFieldSuggestion_SuggestsAfterComma(t *testing.T) {
+	docs := []bson.M{{"_id": "1", "name": "Ana", "age": int32(30)}}
+	suggestion := filterFieldSuggestion(`{"name": "Ana", "ag`, docs)
+	if suggestion != "e" {
+		t.Fatalf("expected suggestion 'e' completing 'age', got %q", suggestion)
+	}
+}
+
+func TestFilterFieldSuggestion_TieResolvesToAlphabeticallyFirst(t *testing.T) {
+	docs := []bson.M{{"_id": "1", "name": "Ana", "nationality": "AR"}}
+	suggestion := filterFieldSuggestion(`{"na`, docs)
+	if suggestion != "me" {
+		t.Fatalf("expected 'name' (alphabetically before 'nationality') to win, got suggestion %q", suggestion)
+	}
+}
+
+func TestFilterFieldSuggestion_EmptyPartialSuggestsFirstFieldAlphabetically(t *testing.T) {
+	docs := []bson.M{{"_id": "1", "name": "Ana", "age": int32(30)}}
+	suggestion := filterFieldSuggestion(`{"`, docs)
+	if suggestion != "_id" {
+		t.Fatalf("expected the alphabetically-first field '_id' fully suggested when nothing typed yet, got %q", suggestion)
+	}
+}
+
+func TestFilterFieldSuggestion_NoMatchReturnsEmpty(t *testing.T) {
+	docs := []bson.M{{"_id": "1", "name": "Ana"}}
+	suggestion := filterFieldSuggestion(`{"zzz`, docs)
+	if suggestion != "" {
+		t.Fatalf("expected no suggestion for unmatched prefix, got %q", suggestion)
+	}
+}
+
+func TestFilterFieldSuggestion_NotInKeyPositionInsideValueReturnsEmpty(t *testing.T) {
+	docs := []bson.M{{"_id": "1", "name": "Ana"}}
+	suggestion := filterFieldSuggestion(`{"name": "a`, docs)
+	if suggestion != "" {
+		t.Fatalf("expected no suggestion while typing a value, got %q", suggestion)
+	}
+}
+
+func TestFilterFieldSuggestion_NotInKeyPositionAfterColonReturnsEmpty(t *testing.T) {
+	docs := []bson.M{{"_id": "1", "name": "Ana"}}
+	suggestion := filterFieldSuggestion(`{"name":`, docs)
+	if suggestion != "" {
+		t.Fatalf("expected no suggestion right after a completed key, got %q", suggestion)
+	}
+}
+
+func TestFilterFieldSuggestion_IgnoresNestedFields(t *testing.T) {
+	docs := []bson.M{{"_id": "1", "address": bson.M{"city": "BA", "country": "AR"}}}
+	suggestion := filterFieldSuggestion(`{"cit`, docs)
+	if suggestion != "" {
+		t.Fatalf("expected no suggestion for a nested-only field name, got %q", suggestion)
+	}
+}
+
+func TestDocListModel_TabAcceptsFilterSuggestion(t *testing.T) {
+	docs := []bson.M{{"_id": "1", "name": "Ana"}}
+	m := newDocListModel(docs, 1, 0, 20)
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	for _, r := range `{"nam` {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if m.FilterSuggestion() != "e" {
+		t.Fatalf("expected suggestion 'e' before accepting, got %q", m.FilterSuggestion())
+	}
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if m.FilterText() != `{"name` {
+		t.Fatalf("expected Tab to accept the suggestion, got filter %q", m.FilterText())
+	}
+}
+
+func TestDocListModel_TabWithNoSuggestionDoesNotCorruptFilter(t *testing.T) {
+	docs := []bson.M{{"_id": "1", "name": "Ana"}}
+	m := newDocListModel(docs, 1, 0, 20)
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	for _, r := range `{"zzz` {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if m.FilterText() != `{"zzz` {
+		t.Fatalf("expected Tab with no suggestion to leave the filter unchanged, got %q", m.FilterText())
+	}
+}

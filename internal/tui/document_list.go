@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"regexp"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -43,6 +45,13 @@ func (m docListModel) FuzzyFiltering() bool { return m.fuzzyFiltering }
 // FuzzyQuery returns the text typed so far into the active local fuzzy-find.
 func (m docListModel) FuzzyQuery() string { return m.fuzzyQuery }
 
+// FilterSuggestion returns the missing suffix of the best-matching
+// top-level field name for whatever partial key is currently being typed
+// into the Mongo filter, or "" if none applies. See filterFieldSuggestion.
+func (m docListModel) FilterSuggestion() string {
+	return filterFieldSuggestion(m.filter, m.docs)
+}
+
 func (m docListModel) Update(msg tea.Msg) (docListModel, tea.Cmd) {
 	keyMsg, ok := msg.(tea.KeyMsg)
 	if !ok {
@@ -58,6 +67,8 @@ func (m docListModel) Update(msg tea.Msg) (docListModel, tea.Cmd) {
 		case tea.KeyEsc:
 			m.filtering = false
 			m.filter = ""
+		case tea.KeyTab:
+			m.filter += filterFieldSuggestion(m.filter, m.docs)
 		case tea.KeyBackspace:
 			if r := []rune(m.filter); len(r) > 0 {
 				m.filter = string(r[:len(r)-1])
@@ -202,4 +213,48 @@ func (m docListModel) View() string {
 	}
 	b.WriteString("\n" + helpHintStyle.Render("[/] filtrar  [n/p] página  [Enter] ver  [i] insertar  [Tab] índices"))
 	return b.String()
+}
+
+// filterKeyPositionPattern matches when the filter text ends in an open
+// JSON key position: a "{" or "," (a value's closing quote and any
+// whitespace already consumed), followed by an opening quote and the
+// partial key text typed so far, with no further quotes in between (an
+// interior quote would mean we're actually past the key, e.g. typing a
+// value or already at a colon).
+var filterKeyPositionPattern = regexp.MustCompile(`[{,]\s*"([^"]*)$`)
+
+// filterFieldSuggestion returns the missing suffix of the best-matching
+// top-level field name for the partial key currently being typed in
+// filter, or "" if filter isn't in a JSON key position (see
+// filterKeyPositionPattern) or no known field name starts with the partial
+// text typed so far. Field names are the union of top-level keys across
+// docs — nested fields inside a bson.M/bson.A value are never considered,
+// matching the same top-level-only boundary used by docPanelLines'
+// "Array (N)"/"Object" placeholders (see document_render.go). Ties between
+// multiple matching field names resolve to the alphabetically-first one.
+func filterFieldSuggestion(filter string, docs []bson.M) string {
+	match := filterKeyPositionPattern.FindStringSubmatch(filter)
+	if match == nil {
+		return ""
+	}
+	partial := match[1]
+
+	fieldSet := map[string]bool{}
+	for _, doc := range docs {
+		for field := range doc {
+			fieldSet[field] = true
+		}
+	}
+	fields := make([]string, 0, len(fieldSet))
+	for field := range fieldSet {
+		fields = append(fields, field)
+	}
+	sort.Strings(fields)
+
+	for _, field := range fields {
+		if strings.HasPrefix(field, partial) {
+			return field[len(partial):]
+		}
+	}
+	return ""
 }
