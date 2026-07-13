@@ -201,6 +201,7 @@ func (m docListModel) Update(msg tea.Msg) (docListModel, tea.Cmd) {
 	case "esc":
 		if m.filter != "" {
 			m.filter = ""
+			m.filterCursor = 0
 			return m, func() tea.Msg { return filterClearedMsg{} }
 		}
 		return m, func() tea.Msg { return listBackMsg{} }
