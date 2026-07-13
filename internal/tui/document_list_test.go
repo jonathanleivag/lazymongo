@@ -260,3 +260,144 @@ func TestDocListModel_TabWithNoSuggestionDoesNotCorruptFilter(t *testing.T) {
 		t.Fatalf("expected Tab with no suggestion to leave the filter unchanged, got %q", m.FilterText())
 	}
 }
+
+func TestDocListModel_TypingInsertsAtCursorNotAlwaysAtEnd(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	for _, r := range "ac" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	if m.FilterText() != "abc" {
+		t.Fatalf("expected insertion at cursor to produce 'abc', got %q", m.FilterText())
+	}
+}
+
+func TestDocListModel_BackspaceRemovesRuneBeforeCursor(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	for _, r := range "abc" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if m.FilterText() != "ac" {
+		t.Fatalf("expected backspace to remove 'b' (before cursor), got %q", m.FilterText())
+	}
+}
+
+func TestDocListModel_ArrowsMoveAndClampCursor(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	for _, r := range "ab" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if m.FilterCursor() != 2 {
+		t.Fatalf("expected cursor at end (2) after typing 'ab', got %d", m.FilterCursor())
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	if m.FilterCursor() != 0 {
+		t.Fatalf("expected cursor clamped at 0, got %d", m.FilterCursor())
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	if m.FilterCursor() != 2 {
+		t.Fatalf("expected cursor clamped at 2 (end), got %d", m.FilterCursor())
+	}
+}
+
+func TestDocListModel_TypingOpenBraceAutoClosesWithCursorBetween(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("{")})
+	if m.FilterText() != "{}" {
+		t.Fatalf("expected '{' to auto-close as '{}', got %q", m.FilterText())
+	}
+	if m.FilterCursor() != 1 {
+		t.Fatalf("expected cursor between the braces (1), got %d", m.FilterCursor())
+	}
+}
+
+func TestDocListModel_TypingQuoteAutoClosesWithCursorBetween(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(`"`)})
+	if m.FilterText() != `""` {
+		t.Fatalf(`expected '"' to auto-close as '""', got %q`, m.FilterText())
+	}
+	if m.FilterCursor() != 1 {
+		t.Fatalf("expected cursor between the quotes (1), got %d", m.FilterCursor())
+	}
+}
+
+func TestDocListModel_TypingClosingBraceSkipsOverExistingOne(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("{")})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("}")})
+	if m.FilterText() != "{}" {
+		t.Fatalf("expected typing '}' to skip over the existing one, not duplicate, got %q", m.FilterText())
+	}
+	if m.FilterCursor() != 2 {
+		t.Fatalf("expected cursor to land after the closing brace (2), got %d", m.FilterCursor())
+	}
+}
+
+func TestDocListModel_TypingClosingQuoteSkipsOverExistingOne(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(`"`)})
+	for _, r := range "Ana" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(`"`)})
+	if m.FilterText() != `"Ana"` {
+		t.Fatalf(`expected typing '"' to skip over the existing closing quote, got %q`, m.FilterText())
+	}
+	if m.FilterCursor() != 5 {
+		t.Fatalf("expected cursor to land after the closing quote (5), got %d", m.FilterCursor())
+	}
+}
+
+func TestDocListModel_BackspaceOnEmptyPairRemovesBoth(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("{")})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if m.FilterText() != "" {
+		t.Fatalf("expected backspace on an empty pair to remove both characters, got %q", m.FilterText())
+	}
+	if m.FilterCursor() != 0 {
+		t.Fatalf("expected cursor back at 0, got %d", m.FilterCursor())
+	}
+}
+
+func TestDocListModel_BackspaceOnNonEmptyPairRemovesOnlyOneChar(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("{")})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if m.FilterText() != "{}" {
+		t.Fatalf("expected backspace to remove only 'a' (pair is not empty), got %q", m.FilterText())
+	}
+}
+
+func TestDocListModel_InsertAndBackspaceHandleMultiByteRunesSafely(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	for _, r := range "ó" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if m.FilterText() != "ó" {
+		t.Fatalf("expected 'ó' inserted intact, got %q", m.FilterText())
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if m.FilterText() != "" {
+		t.Fatalf("expected backspace to remove the whole rune 'ó', got %q", m.FilterText())
+	}
+}

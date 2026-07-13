@@ -17,13 +17,14 @@ type insertRequestedMsg struct{}
 type switchToIndexesMsg struct{}
 
 type docListModel struct {
-	docs      []bson.M
-	total     int64
-	page      int64
-	pageSize  int64
-	cursor    int
-	filtering bool
-	filter    string
+	docs         []bson.M
+	total        int64
+	page         int64
+	pageSize     int64
+	cursor       int
+	filtering    bool
+	filter       string
+	filterCursor int
 
 	fuzzyFiltering bool
 	fuzzyQuery     string
@@ -35,6 +36,10 @@ func newDocListModel(docs []bson.M, total, page, pageSize int64) docListModel {
 }
 
 func (m docListModel) FilterText() string { return m.filter }
+
+// FilterCursor returns the current rune-index cursor position within the
+// Mongo filter text.
+func (m docListModel) FilterCursor() int { return m.filterCursor }
 
 // FuzzyFiltering reports whether the local (non-Mongo) fuzzy-find over
 // already-loaded rows is active, so RootModel.inTextEntry can keep global
@@ -63,18 +68,26 @@ func (m docListModel) Update(msg tea.Msg) (docListModel, tea.Cmd) {
 		case tea.KeyEnter:
 			m.filtering = false
 			filter := m.filter
+			m.filterCursor = 0
 			return m, func() tea.Msg { return filterSubmittedMsg{Filter: filter} }
 		case tea.KeyEsc:
 			m.filtering = false
 			m.filter = ""
+			m.filterCursor = 0
 		case tea.KeyTab:
 			m.filter += filterFieldSuggestion(m.filter, m.docs)
-		case tea.KeyBackspace:
-			if r := []rune(m.filter); len(r) > 0 {
-				m.filter = string(r[:len(r)-1])
+		case tea.KeyLeft:
+			if m.filterCursor > 0 {
+				m.filterCursor--
 			}
+		case tea.KeyRight:
+			if m.filterCursor < len([]rune(m.filter)) {
+				m.filterCursor++
+			}
+		case tea.KeyBackspace:
+			m.backspaceFilter()
 		case tea.KeyRunes:
-			m.filter += string(keyMsg.Runes)
+			m.insertFilterRunes(keyMsg.Runes)
 		}
 		return m, nil
 	}
@@ -129,6 +142,7 @@ func (m docListModel) Update(msg tea.Msg) (docListModel, tea.Cmd) {
 	case "/":
 		m.filtering = true
 		m.filter = ""
+		m.filterCursor = 0
 	case "ctrl+f":
 		m.fuzzyFiltering = true
 		m.fuzzyQuery = ""
@@ -151,6 +165,85 @@ func (m docListModel) Update(msg tea.Msg) (docListModel, tea.Cmd) {
 		return m, func() tea.Msg { return listBackMsg{} }
 	}
 	return m, nil
+}
+
+// insertFilterRunes inserts each typed rune at filterCursor in order,
+// applying auto-close and skip-over for "{" and "\"" (see
+// insertFilterRune).
+func (m *docListModel) insertFilterRunes(runes []rune) {
+	for _, r := range runes {
+		m.insertFilterRune(r)
+	}
+}
+
+// insertFilterRune inserts one rune into filter at filterCursor. Typing "{"
+// or "\"" auto-inserts the matching closer immediately after it, leaving
+// the cursor between the two. Typing a closer ("}" or "\"") that is already
+// sitting immediately to the right of the cursor moves the cursor past it
+// instead of inserting a duplicate ("skip-over") — this is purely
+// positional (it doesn't parse the JSON or track which characters were
+// auto-inserted), which is what makes it work identically whether you're
+// closing an auto-inserted pair or finishing a value string by hand.
+func (m *docListModel) insertFilterRune(r rune) {
+	text := []rune(m.filter)
+
+	if (r == '}' || r == '"') && m.filterCursor < len(text) && text[m.filterCursor] == r {
+		m.filterCursor++
+		return
+	}
+
+	var closer rune
+	switch r {
+	case '{':
+		closer = '}'
+	case '"':
+		closer = '"'
+	}
+
+	newText := make([]rune, 0, len(text)+2)
+	newText = append(newText, text[:m.filterCursor]...)
+	newText = append(newText, r)
+	if closer != 0 {
+		newText = append(newText, closer)
+	}
+	newText = append(newText, text[m.filterCursor:]...)
+
+	m.filter = string(newText)
+	m.filterCursor++
+}
+
+// backspaceFilter removes the rune immediately before filterCursor. If that
+// rune is "{" or "\"" and the rune immediately after the cursor is its
+// matching closer with nothing typed in between (an empty auto-closed
+// pair), both characters are removed at once instead of leaving an orphan
+// closer behind.
+func (m *docListModel) backspaceFilter() {
+	if m.filterCursor == 0 {
+		return
+	}
+	text := []rune(m.filter)
+	before := text[m.filterCursor-1]
+
+	emptyPair := false
+	if m.filterCursor < len(text) {
+		after := text[m.filterCursor]
+		emptyPair = (before == '{' && after == '}') || (before == '"' && after == '"')
+	}
+
+	if emptyPair {
+		newText := make([]rune, 0, len(text)-2)
+		newText = append(newText, text[:m.filterCursor-1]...)
+		newText = append(newText, text[m.filterCursor+1:]...)
+		m.filter = string(newText)
+		m.filterCursor--
+		return
+	}
+
+	newText := make([]rune, 0, len(text)-1)
+	newText = append(newText, text[:m.filterCursor-1]...)
+	newText = append(newText, text[m.filterCursor:]...)
+	m.filter = string(newText)
+	m.filterCursor--
 }
 
 // exitFuzzyFiltering leaves local fuzzy-find mode and restores the full
