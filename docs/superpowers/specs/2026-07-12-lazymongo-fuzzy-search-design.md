@@ -68,13 +68,24 @@ actions — these shortcuts must be gated behind `!filtering`.
 
 ## Rendering
 
-While filtering, the panel's heading (inside the existing `renderPanel`)
-shows `Buscar: <text>_`, same convention as the existing Mongo filter in
-Documents, and the rest of the panel shows only the matching items. An empty
-result set shows `(sin coincidencias)` instead of an ambiguous blank list.
-Moving focus away from a filtering panel (e.g. pressing `1`-`5` to switch
-focus) does NOT clear that panel's active filter — consistent with the
-existing behavior of the Mongo filter in Documents, not a new decision.
+**Deviation from the original design (found while writing the implementation
+plan, approved by the owner):** the existing Mongo filter indicator in
+Documents has a pre-existing, out-of-scope bug — `root.go` prepends a
+`"Filtro: ..."` line to the rendered rows without adjusting the cursor
+index, so the `>` selection marker lands one row off whenever that filter is
+active. Copying that convention into the 4 new list panels would reproduce
+the same bug 4 more times. Instead: while filtering, the search text is shown
+in the panel's **title** (e.g. `"Databases — Buscar: hdc_"`), not as a
+prepended content line, so `Items`/`Cursor` indexing is never touched by the
+indicator. An empty result set shows a single `(sin coincidencias)` line in
+place of the item list (safe — there's no real selection to misalign when
+the list is genuinely empty). This applies to the 4 list panels
+(Databases/Collections/Indexes/Conexiones) and to the new local fuzzy-find
+in Documents (its title-appended indicator is independent from, and does not
+modify, the existing buggy `"Filtro: ..."` line). Moving focus away from a
+filtering panel (e.g. pressing `1`-`5`) does NOT clear that panel's active
+filter — consistent with the existing behavior of the Mongo filter in
+Documents, not a new decision.
 
 ## Testing
 
