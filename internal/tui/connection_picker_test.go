@@ -65,3 +65,24 @@ func TestConnectionPicker_CreateFormSubmitsNewConnection(t *testing.T) {
 		t.Fatalf("expected color 'rojo' after one 'l', got %q", got)
 	}
 }
+
+func TestConnectionPicker_TypingADuringFilterDoesNotOpenCreateForm(t *testing.T) {
+	conns := []config.Connection{
+		{Name: "qa", URI: "mongodb://qa", Color: "verde"},
+		{Name: "staging", URI: "mongodb://staging", Color: "amarillo"},
+	}
+	m := newConnectionPickerModel(conns)
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	if !m.list.Filtering() {
+		t.Fatal("expected the underlying list to be filtering after '/'")
+	}
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	if m.creating {
+		t.Fatal("expected 'a' typed while filtering to NOT open the create-connection form")
+	}
+	if m.list.FilterQuery() != "a" {
+		t.Fatalf("expected 'a' to be added to the filter query, got %q", m.list.FilterQuery())
+	}
+}

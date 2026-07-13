@@ -115,7 +115,7 @@ func (m connectionPickerModel) Update(msg tea.Msg) (connectionPickerModel, tea.C
 		return m, nil
 	}
 
-	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "a" {
+	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "a" && !m.list.Filtering() {
 		m.creating = true
 		m.form = newConnectionForm()
 		return m, nil
