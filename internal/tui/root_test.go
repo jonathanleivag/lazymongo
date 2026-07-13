@@ -584,3 +584,36 @@ func TestRootModel_DocumentsPanelExpandsOnlyHighlightedDocument(t *testing.T) {
 		t.Fatalf("expected the highlighted document's _id ('o1') to appear, got:\n%s", view)
 	}
 }
+
+func TestRootModel_DocumentsFilterShowsInlineSuggestion(t *testing.T) {
+	fake := mongo.NewFakeClient()
+	fake.Databases["shop"] = map[string][]bson.M{
+		"orders": {{"_id": "o1", "name": "Ana"}},
+	}
+	conn := config.Connection{Name: "qa", URI: "mongodb://fake", Color: "verde"}
+	m := NewRootModel(fake, &conn)
+
+	model, _ := m.Update(m.Init()())
+	root := model.(RootModel)
+	root.db = "shop"
+	root.coll = "orders"
+	model, _ = root.Update(documentsLoadedMsg{Docs: fake.Databases["shop"]["orders"], Total: 1})
+	root = model.(RootModel)
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyTab})
+	root = model.(RootModel)
+
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	root = model.(RootModel)
+	for _, r := range `{"nam` {
+		model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		root = model.(RootModel)
+	}
+
+	view := root.View()
+	if !strings.Contains(view, `Filtro: {"nam`) {
+		t.Fatalf("expected the typed filter text to appear, got:\n%s", view)
+	}
+	if !strings.Contains(view, `{"name`) {
+		t.Fatalf("expected the suggestion 'e' to appear appended right after the typed text, got:\n%s", view)
+	}
+}

@@ -643,7 +643,8 @@ func (m RootModel) View() string {
 	}
 	docLines, docCursor := docPanelLines(m.docList.docs, m.docList.cursor)
 	if m.docList.filtering {
-		docLines = append([]string{"Filtro: " + m.docList.filter + "_"}, docLines...)
+		suggestion := helpHintStyle.Render(m.docList.FilterSuggestion())
+		docLines = append([]string{"Filtro: " + m.docList.filter + suggestion + "_"}, docLines...)
 	} else if m.docList.filter != "" {
 		docLines = append([]string{"Filtro activo: " + m.docList.filter}, docLines...)
 	}
