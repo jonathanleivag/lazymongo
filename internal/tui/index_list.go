@@ -108,6 +108,10 @@ func (m idxListModel) Update(msg tea.Msg) (idxListModel, tea.Cmd) {
 			if m.cursor < len(m.indexes)-1 {
 				m.cursor++
 			}
+		case tea.KeyEnter:
+			if len(m.indexes) > 0 {
+				m.exitFiltering(m.indexes[m.cursor].Name)
+			}
 		case tea.KeyBackspace:
 			if r := []rune(m.filterQuery); len(r) > 0 {
 				m.filterQuery = string(r[:len(r)-1])
@@ -151,6 +155,24 @@ func (m idxListModel) Update(msg tea.Msg) (idxListModel, tea.Cmd) {
 		return m, func() tea.Msg { return listBackMsg{} }
 	}
 	return m, nil
+}
+
+// exitFiltering leaves filtering mode and restores the full index set, with
+// cursor moved to selectedName's position in that full set. Used on Enter:
+// without this, filtering stayed active after a selection, so the next
+// keystroke (e.g. a panel-jump digit) kept being swallowed as literal query
+// text instead of reaching RootModel's global shortcut handling.
+func (m *idxListModel) exitFiltering(selectedName string) {
+	m.filtering = false
+	m.filterQuery = ""
+	m.indexes = m.allIndexes
+	m.cursor = 0
+	for i, idx := range m.indexes {
+		if idx.Name == selectedName {
+			m.cursor = i
+			break
+		}
+	}
 }
 
 // applyFilter recomputes indexes from allIndexes using the current

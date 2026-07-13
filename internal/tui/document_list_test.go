@@ -140,3 +140,26 @@ func TestDocListModel_EnterDuringLocalFuzzySendsDocumentChosenMsg(t *testing.T) 
 		t.Fatalf("expected documentChosenMsg for doc '2', got %#v", cmd())
 	}
 }
+
+// TestDocListModel_EnterDuringLocalFuzzyExitsFuzzyFilteringMode is a
+// regression test: pressing Enter used to leave fuzzy-find active, so once
+// the opened document's popup closed, the next keystroke (e.g. a panel-jump
+// digit) kept being swallowed as literal query text instead of reaching
+// global shortcut handling.
+func TestDocListModel_EnterDuringLocalFuzzyExitsFuzzyFilteringMode(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlF})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.FuzzyFiltering() {
+		t.Fatal("expected fuzzy-filtering to be false after Enter")
+	}
+	if len(m.docs) != 2 {
+		t.Fatalf("expected the full 2-doc set restored after Enter, got %+v", m.docs)
+	}
+	if m.docs[m.cursor]["_id"] != "2" {
+		t.Fatalf("expected cursor to point at the selected doc '2' in the restored set, got %+v at cursor %d", m.docs, m.cursor)
+	}
+}

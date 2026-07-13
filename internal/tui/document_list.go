@@ -86,6 +86,7 @@ func (m docListModel) Update(msg tea.Msg) (docListModel, tea.Cmd) {
 		case tea.KeyEnter:
 			if len(m.docs) > 0 {
 				doc := m.docs[m.cursor]
+				m.exitFuzzyFiltering(doc["_id"])
 				return m, func() tea.Msg { return documentChosenMsg{Doc: doc} }
 			}
 		case tea.KeyBackspace:
@@ -139,6 +140,25 @@ func (m docListModel) Update(msg tea.Msg) (docListModel, tea.Cmd) {
 		return m, func() tea.Msg { return listBackMsg{} }
 	}
 	return m, nil
+}
+
+// exitFuzzyFiltering leaves local fuzzy-find mode and restores the full
+// loaded row set, with cursor moved to selectedID's position in that full
+// set. Used on Enter: without this, fuzzy-find stayed active after opening
+// a document, so the next keystroke (e.g. a panel-jump digit, once the
+// detail popup closes) kept being swallowed as literal query text instead
+// of reaching RootModel's global shortcut handling.
+func (m *docListModel) exitFuzzyFiltering(selectedID any) {
+	m.fuzzyFiltering = false
+	m.fuzzyQuery = ""
+	m.docs = m.allDocs
+	m.cursor = 0
+	for i, doc := range m.docs {
+		if doc["_id"] == selectedID {
+			m.cursor = i
+			break
+		}
+	}
 }
 
 // applyFuzzyFilter recomputes docs from allDocs using the current

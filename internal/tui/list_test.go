@@ -127,6 +127,37 @@ func TestListModel_EnterDuringFilterSelectsHighlightedItem(t *testing.T) {
 	}
 }
 
+// TestListModel_EnterDuringFilterExitsFilteringMode is a regression test:
+// pressing Enter used to leave filtering active, so the very next keystroke
+// (e.g. a digit meant for a panel-jump shortcut) kept being swallowed as
+// literal query text instead of reaching global shortcut handling.
+func TestListModel_EnterDuringFilterExitsFilteringMode(t *testing.T) {
+	items := []listItem{{ID: "admin", Label: "admin"}, {ID: "haddacloud-v2", Label: "haddacloud-v2"}, {ID: "test", Label: "test"}}
+	m := newListModel("Test", items, false)
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ha")})
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Filtering() {
+		t.Fatal("expected filtering to be false after Enter")
+	}
+	if len(m.Items) != 3 {
+		t.Fatalf("expected the full 3-item list restored after Enter, got %+v", m.Items)
+	}
+	if m.Items[m.Cursor].ID != "haddacloud-v2" {
+		t.Fatalf("expected cursor to point at the selected item 'haddacloud-v2' in the restored list, got %+v at cursor %d", m.Items, m.Cursor)
+	}
+
+	// The bug this guards against: with filtering still stuck active, "3"
+	// would be swallowed into filterQuery instead of being free for
+	// RootModel to treat as a panel-jump shortcut.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	if m.FilterQuery() != "" {
+		t.Fatalf("expected '3' typed after Enter to NOT be swallowed into the filter query, got %q", m.FilterQuery())
+	}
+}
+
 func TestListModel_UpDownArrowsMoveCursorWithinFilterResults(t *testing.T) {
 	items := []listItem{{ID: "test1", Label: "test1"}, {ID: "test2", Label: "test2"}}
 	m := newListModel("Test", items, false)

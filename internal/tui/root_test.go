@@ -216,6 +216,40 @@ func TestRootModel_FuzzyFilterInDatabasesCascadesEvenWhenCursorStaysAtZero(t *te
 	}
 }
 
+// TestRootModel_EnterAfterFilteringDatabasesLetsDigitJumpToNextPanel is a
+// regression test for a second bug reported right after the cascade fix
+// above: the user searched Databases, pressed Enter (which used to leave
+// filtering active), then pressed "3" wanting to jump to the Collections
+// panel — but since filtering was still active, "3" got typed into the
+// search query instead (visibly producing "ha3" with no matches).
+func TestRootModel_EnterAfterFilteringDatabasesLetsDigitJumpToNextPanel(t *testing.T) {
+	root, _ := rootModelAtDatabasesFocus(t)
+
+	model, _ := root.Update(connectedMsg{Databases: []string{"admin", "haddacloud-v2"}})
+	root = model.(RootModel)
+
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	root = model.(RootModel)
+	model, cmd := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ha")})
+	root = model.(RootModel)
+	if cmd != nil {
+		model, _ = root.Update(cmd())
+		root = model.(RootModel)
+	}
+
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	root = model.(RootModel)
+	if root.dbList.Filtering() {
+		t.Fatal("expected filtering to be false after Enter")
+	}
+
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	root = model.(RootModel)
+	if root.focus != panelCollections {
+		t.Fatalf("expected '3' after Enter to jump focus to panelCollections, got focus=%v (dbList filter query=%q)", root.focus, root.dbList.FilterQuery())
+	}
+}
+
 // TestRootModel_FuzzyFilterInCollectionsCascadesEvenWhenCursorStaysAtZero is
 // the Collections-panel counterpart of the Databases regression above — the
 // exact scenario the project owner reported: searching for a collection by

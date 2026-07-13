@@ -112,3 +112,24 @@ func TestIdxListModel_EscDuringFilterRestoresFullIndexList(t *testing.T) {
 		t.Fatalf("expected full index list of 2 restored after Esc, got %d", len(m.indexes))
 	}
 }
+
+// TestIdxListModel_EnterDuringFilterExitsFilteringMode is a regression test:
+// pressing Enter used to do nothing at all (no KeyEnter case existed in the
+// filtering branch), leaving filtering stuck active so the next keystroke
+// (e.g. a panel-jump digit) kept being swallowed as literal query text.
+func TestIdxListModel_EnterDuringFilterExitsFilteringMode(t *testing.T) {
+	m := newIdxListModel(sampleIndexes())
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("email")})
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Filtering() {
+		t.Fatal("expected filtering to be false after Enter")
+	}
+	if len(m.indexes) != 2 {
+		t.Fatalf("expected the full 2-index list restored after Enter, got %+v", m.indexes)
+	}
+	if m.indexes[m.cursor].Name != "email_1" {
+		t.Fatalf("expected cursor to point at the selected index 'email_1' in the restored list, got %+v at cursor %d", m.indexes, m.cursor)
+	}
+}
