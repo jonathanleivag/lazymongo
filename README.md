@@ -22,7 +22,7 @@ Personal TUI for browsing/editing MongoDB, reusing `~/.config/mongo-connections.
 | `Tab` | jump to Documents panel (or to Indexes, if already on Documents) |
 | `j`/`k`, arrows | move within the focused panel |
 | `Enter` | view document / connect (in Conexiones) / enter |
-| `Esc` | close the active popup |
+| `Esc` | close the active popup / exit an active search (fuzzy or Mongo filter) |
 | `/` | buscar/filtrar: fuzzy-search por nombre en Databases/Collections/Indexes/Conexiones; filtro de query Mongo en Documentos |
 | `Ctrl+f` | fuzzy-search entre los documentos ya cargados en pantalla (no dispara una nueva query) |
 | `n`/`p` | next/previous page |
