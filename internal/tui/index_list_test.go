@@ -57,3 +57,58 @@ func TestIdxListModel_AOpensCreateFormAndEnterSubmits(t *testing.T) {
 		t.Fatalf("expected indexCreateSubmittedMsg{KeysJSON:'{\"email\":1}',Unique:true}, got %#v", cmd())
 	}
 }
+
+func TestIdxListModel_SlashFiltersIndexesByName(t *testing.T) {
+	m := newIdxListModel(sampleIndexes())
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	if !m.Filtering() {
+		t.Fatal("expected filtering mode to be active after '/'")
+	}
+	for _, r := range "email" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if len(m.indexes) != 1 || m.indexes[0].Name != "email_1" {
+		t.Fatalf("expected only 'email_1' to match, got %+v", m.indexes)
+	}
+}
+
+func TestIdxListModel_TypingADuringFilterDoesNotOpenCreateForm(t *testing.T) {
+	m := newIdxListModel(sampleIndexes())
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	if m.creating {
+		t.Fatal("expected 'a' typed while filtering to NOT open the create-index form")
+	}
+	if m.FilterQuery() != "a" {
+		t.Fatalf("expected 'a' to be added to the filter query, got %q", m.FilterQuery())
+	}
+}
+
+func TestIdxListModel_TypingDDuringFilterDoesNotOpenDropConfirm(t *testing.T) {
+	m := newIdxListModel(sampleIndexes())
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	if m.confirmingDrop {
+		t.Fatal("expected 'd' typed while filtering to NOT open the drop confirmation")
+	}
+}
+
+func TestIdxListModel_EscDuringFilterRestoresFullIndexList(t *testing.T) {
+	m := newIdxListModel(sampleIndexes())
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("email")})
+	if len(m.indexes) != 1 {
+		t.Fatalf("expected filter to narrow to 1 index, got %d", len(m.indexes))
+	}
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.Filtering() {
+		t.Fatal("expected filtering false after Esc")
+	}
+	if len(m.indexes) != 2 {
+		t.Fatalf("expected full index list of 2 restored after Esc, got %d", len(m.indexes))
+	}
+}
