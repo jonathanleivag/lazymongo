@@ -11,7 +11,7 @@ Esc            cerrar el popup activo / salir de un buscador activo
 Ctrl+f         buscar (fuzzy) entre los documentos ya cargados en pantalla
 n/p            página siguiente/anterior (en Documentos)
 i, a           insertar documento / crear conexión o índice
-e              editar campo (en detalle de documento) / editar conexión (URI y color, en Conexiones)
+e              editar campo (en detalle de documento) / editar conexión (nombre, URI y color, en Conexiones)
 E              editar documento completo en $EDITOR
 d, x           borrar (siempre pide confirmación)
 ?              esta ayuda
