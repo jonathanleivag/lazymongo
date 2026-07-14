@@ -112,3 +112,21 @@ func TestFakeClient_RenameCollectionRejectsCollisionWithDifferentExistingCollect
 		t.Fatalf("expected 'users' to be untouched after the rejected rename, got %+v", f.Databases["shop"]["users"])
 	}
 }
+
+func TestFakeClient_RenameCollectionToSameNameSucceedsAsNoOp(t *testing.T) {
+	f := NewFakeClient()
+	f.Databases["shop"] = map[string][]bson.M{"orders": {{"_id": "1"}}}
+	f.Indexes["shop"] = map[string][]IndexInfo{"orders": {{Name: "email_1"}}}
+
+	if err := f.RenameCollection(context.Background(), "shop", "orders", "orders"); err != nil {
+		t.Fatalf("expected renaming 'orders' to itself to succeed as a no-op, got: %v", err)
+	}
+	docs, ok := f.Databases["shop"]["orders"]
+	if !ok || len(docs) != 1 {
+		t.Fatalf("expected 'orders' to still exist with its docs intact, got %+v", f.Databases["shop"])
+	}
+	idxs, ok := f.Indexes["shop"]["orders"]
+	if !ok || len(idxs) != 1 {
+		t.Fatalf("expected 'orders' indexes to still exist, got %+v", f.Indexes["shop"])
+	}
+}

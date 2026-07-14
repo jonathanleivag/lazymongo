@@ -168,8 +168,10 @@ func (f *FakeClient) RenameCollection(ctx context.Context, db, oldName, newName 
 	if !exists {
 		return fmt.Errorf("la collection %q no existe en %q", oldName, db)
 	}
-	if _, collides := f.Databases[db][newName]; collides {
-		return fmt.Errorf("ya existe una collection llamada %q en %q", newName, db)
+	if oldName != newName {
+		if _, collides := f.Databases[db][newName]; collides {
+			return fmt.Errorf("ya existe una collection llamada %q en %q", newName, db)
+		}
 	}
 	delete(f.Databases[db], oldName)
 	f.Databases[db][newName] = docs
