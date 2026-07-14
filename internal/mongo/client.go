@@ -241,7 +241,16 @@ func (c *RealClient) DropDatabase(ctx context.Context, db string) error {
 // exposes renaming only via the admin "renameCollection" command, which
 // requires admin privileges on the connected Mongo user. A permissions
 // error here surfaces through the returned error like any other failure.
+//
+// A same-name rename (oldName == newName) is a deliberate no-op: MongoDB's
+// renameCollection command rejects source==target with an error, which
+// would otherwise surface a confusing failure for what the UI treats as
+// "nothing changed" (e.g. pressing Enter on the rename form without
+// editing the name) — FakeClient already treats this as a no-op too.
 func (c *RealClient) RenameCollection(ctx context.Context, db, oldName, newName string) error {
+	if oldName == newName {
+		return nil
+	}
 	fromNS := fmt.Sprintf("%s.%s", db, oldName)
 	toNS := fmt.Sprintf("%s.%s", db, newName)
 	cmd := bson.D{{Key: "renameCollection", Value: fromNS}, {Key: "to", Value: toNS}}
