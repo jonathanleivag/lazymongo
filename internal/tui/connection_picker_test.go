@@ -304,3 +304,36 @@ func TestConnectionPicker_ViewShowsCursorMarkerAtRealPositionInActiveField(t *te
 		t.Fatalf("expected the cursor marker between 'a' and 'b', got:\n%s", view)
 	}
 }
+
+func TestConnectionPicker_EStoresOriginalNameForRenameDetection(t *testing.T) {
+	conns := []config.Connection{
+		{Name: "qa", URI: "mongodb://qa:27017", Color: "verde"},
+	}
+	m := newConnectionPickerModel(conns)
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	if m.editingOriginalName != "qa" {
+		t.Fatalf("expected editingOriginalName 'qa', got %q", m.editingOriginalName)
+	}
+}
+
+func TestConnectionPicker_ChangingNameThenEnterStillReturnsACommand(t *testing.T) {
+	conns := []config.Connection{
+		{Name: "qa", URI: "mongodb://qa:27017", Color: "verde"},
+	}
+	m := newConnectionPickerModel(conns)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+
+	// edit form now starts on the Name field; append to it directly
+	for _, r := range "2" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if m.form.name != "qa2" {
+		t.Fatalf("expected Name editable and accumulating, got %q", m.form.name)
+	}
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected a command on submitting the edit form after renaming")
+	}
+}

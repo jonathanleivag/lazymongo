@@ -162,13 +162,14 @@ func nextColor(current string, delta int) string {
 }
 
 type connectionPickerModel struct {
-	list             listModel
-	conns            []config.Connection
-	creating         bool
-	editing          bool
-	confirmingDelete bool
-	confirm          confirmModel
-	form             connectionForm
+	list                listModel
+	conns               []config.Connection
+	creating            bool
+	editing             bool
+	confirmingDelete    bool
+	confirm             confirmModel
+	form                connectionForm
+	editingOriginalName string
 }
 
 func newConnectionPickerModel(conns []config.Connection) connectionPickerModel {
@@ -236,6 +237,15 @@ func (m connectionPickerModel) Update(msg tea.Msg) (connectionPickerModel, tea.C
 		if keyMsg.String() == "enter" {
 			conn := config.Connection{Name: m.form.name, URI: m.form.uri, Color: m.form.color}
 			if m.editing {
+				oldName := m.editingOriginalName
+				if conn.Name != oldName {
+					return m, func() tea.Msg {
+						if err := config.RenameConnection(oldName, conn); err != nil {
+							return connectionUpdateErrMsg{Err: err}
+						}
+						return connectionUpdatedMsg{Conn: conn}
+					}
+				}
 				return m, func() tea.Msg {
 					if err := config.UpdateConnection(conn); err != nil {
 						return connectionUpdateErrMsg{Err: err}
@@ -264,6 +274,7 @@ func (m connectionPickerModel) Update(msg tea.Msg) (connectionPickerModel, tea.C
 			if conn, ok := m.selectedConnection(); ok {
 				m.editing = true
 				m.form = newEditConnectionForm(conn)
+				m.editingOriginalName = conn.Name
 			}
 			return m, nil
 		case "d", "x":
