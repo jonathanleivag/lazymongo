@@ -1,2 +1,4 @@
 /lazymongo
 *.test
+.DS_Store
+.superpowers/
