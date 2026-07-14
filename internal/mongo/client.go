@@ -35,6 +35,11 @@ type Client interface {
 	ListIndexes(ctx context.Context, db, coll string) ([]IndexInfo, error)
 	CreateIndex(ctx context.Context, db, coll string, keys bson.D, unique bool) (string, error)
 	DropIndex(ctx context.Context, db, coll, name string) error
+
+	CreateCollection(ctx context.Context, db, coll string) error
+	DropCollection(ctx context.Context, db, coll string) error
+	DropDatabase(ctx context.Context, db string) error
+	RenameCollection(ctx context.Context, db, oldName, newName string) error
 }
 
 // RealClient implements Client against the official MongoDB Go driver.
@@ -207,6 +212,41 @@ func (c *RealClient) CreateIndex(ctx context.Context, db, coll string, keys bson
 func (c *RealClient) DropIndex(ctx context.Context, db, coll, name string) error {
 	if err := c.client.Database(db).Collection(coll).Indexes().DropOne(ctx, name); err != nil {
 		return fmt.Errorf("borrando índice %q en %s.%s: %w", name, db, coll, err)
+	}
+	return nil
+}
+
+func (c *RealClient) CreateCollection(ctx context.Context, db, coll string) error {
+	if err := c.client.Database(db).CreateCollection(ctx, coll); err != nil {
+		return fmt.Errorf("creando collection %q en %q: %w", coll, db, err)
+	}
+	return nil
+}
+
+func (c *RealClient) DropCollection(ctx context.Context, db, coll string) error {
+	if err := c.client.Database(db).Collection(coll).Drop(ctx); err != nil {
+		return fmt.Errorf("borrando collection %q en %q: %w", coll, db, err)
+	}
+	return nil
+}
+
+func (c *RealClient) DropDatabase(ctx context.Context, db string) error {
+	if err := c.client.Database(db).Drop(ctx); err != nil {
+		return fmt.Errorf("borrando database %q: %w", db, err)
+	}
+	return nil
+}
+
+// RenameCollection has no dedicated driver method — the official Go driver
+// exposes renaming only via the admin "renameCollection" command, which
+// requires admin privileges on the connected Mongo user. A permissions
+// error here surfaces through the returned error like any other failure.
+func (c *RealClient) RenameCollection(ctx context.Context, db, oldName, newName string) error {
+	fromNS := fmt.Sprintf("%s.%s", db, oldName)
+	toNS := fmt.Sprintf("%s.%s", db, newName)
+	cmd := bson.D{{Key: "renameCollection", Value: fromNS}, {Key: "to", Value: toNS}}
+	if err := c.client.Database("admin").RunCommand(ctx, cmd).Err(); err != nil {
+		return fmt.Errorf("renombrando collection %q a %q en %q: %w", oldName, newName, db, err)
 	}
 	return nil
 }

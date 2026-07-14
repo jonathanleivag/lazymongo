@@ -136,3 +136,46 @@ func (f *FakeClient) DropIndex(ctx context.Context, db, coll, name string) error
 	}
 	return fmt.Errorf("índice %q no encontrado", name)
 }
+
+func (f *FakeClient) CreateCollection(ctx context.Context, db, coll string) error {
+	if f.Databases[db] == nil {
+		f.Databases[db] = map[string][]bson.M{}
+	}
+	if _, exists := f.Databases[db][coll]; exists {
+		return fmt.Errorf("la collection %q ya existe en %q", coll, db)
+	}
+	f.Databases[db][coll] = []bson.M{}
+	return nil
+}
+
+func (f *FakeClient) DropCollection(ctx context.Context, db, coll string) error {
+	if _, exists := f.Databases[db][coll]; !exists {
+		return fmt.Errorf("la collection %q no existe en %q", coll, db)
+	}
+	delete(f.Databases[db], coll)
+	delete(f.Indexes[db], coll)
+	return nil
+}
+
+func (f *FakeClient) DropDatabase(ctx context.Context, db string) error {
+	delete(f.Databases, db)
+	delete(f.Indexes, db)
+	return nil
+}
+
+func (f *FakeClient) RenameCollection(ctx context.Context, db, oldName, newName string) error {
+	docs, exists := f.Databases[db][oldName]
+	if !exists {
+		return fmt.Errorf("la collection %q no existe en %q", oldName, db)
+	}
+	if _, collides := f.Databases[db][newName]; collides {
+		return fmt.Errorf("ya existe una collection llamada %q en %q", newName, db)
+	}
+	delete(f.Databases[db], oldName)
+	f.Databases[db][newName] = docs
+	if idxs, ok := f.Indexes[db][oldName]; ok {
+		delete(f.Indexes[db], oldName)
+		f.Indexes[db][newName] = idxs
+	}
+	return nil
+}
