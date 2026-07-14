@@ -24,6 +24,7 @@ type connectionForm struct {
 	color  string
 	field  int  // 0=name, 1=uri, 2=color
 	locked bool // when true, Name is read-only and Tab only cycles URI/Color
+	cursor int  // rune index within whichever of Name/URI (field 0 or 1) is active
 }
 
 func newConnectionForm() connectionForm {
@@ -32,9 +33,14 @@ func newConnectionForm() connectionForm {
 
 // newEditConnectionForm pre-fills the form with an existing connection's
 // current values, locking the Name field (the array key can't be renamed
-// through this form) and starting focus on URI.
+// through this form) and starting focus on URI, with the cursor at the end
+// of the pre-filled URI (ready to keep typing, like tabbing into a normal
+// form input).
 func newEditConnectionForm(conn config.Connection) connectionForm {
-	return connectionForm{name: conn.Name, uri: conn.URI, color: conn.Color, field: 1, locked: true}
+	return connectionForm{
+		name: conn.Name, uri: conn.URI, color: conn.Color,
+		field: 1, locked: true, cursor: len([]rune(conn.URI)),
+	}
 }
 
 func (f connectionForm) update(msg tea.KeyMsg) connectionForm {
@@ -49,6 +55,7 @@ func (f connectionForm) update(msg tea.KeyMsg) connectionForm {
 		} else {
 			f.field = (f.field + 1) % 3
 		}
+		f.cursor = len([]rune(f.activeFieldText()))
 		return f
 	case "shift+tab":
 		if f.locked {
@@ -60,6 +67,7 @@ func (f connectionForm) update(msg tea.KeyMsg) connectionForm {
 		} else {
 			f.field = (f.field + 2) % 3
 		}
+		f.cursor = len([]rune(f.activeFieldText()))
 		return f
 	}
 
@@ -74,31 +82,94 @@ func (f connectionForm) update(msg tea.KeyMsg) connectionForm {
 	}
 
 	switch msg.Type {
+	case tea.KeyLeft:
+		if f.cursor > 0 {
+			f.cursor--
+		}
+	case tea.KeyRight:
+		if f.cursor < len([]rune(f.activeFieldText())) {
+			f.cursor++
+		}
 	case tea.KeyBackspace:
-		if f.field == 0 {
-			if f.locked {
-				return f
-			}
-			if r := []rune(f.name); len(r) > 0 {
-				f.name = string(r[:len(r)-1])
-			}
-		} else if f.field == 1 {
-			if r := []rune(f.uri); len(r) > 0 {
-				f.uri = string(r[:len(r)-1])
-			}
+		if f.field == 0 && f.locked {
+			return f
 		}
+		f.deleteBeforeCursor()
 	case tea.KeyRunes:
-		text := string(msg.Runes)
-		if f.field == 0 {
-			if f.locked {
-				return f
-			}
-			f.name += text
-		} else if f.field == 1 {
-			f.uri += text
+		if f.field == 0 && f.locked {
+			return f
 		}
+		f.insertAtCursor(string(msg.Runes))
 	}
 	return f
+}
+
+// activeFieldText returns the text of whichever field (Name or URI) is
+// currently focused. Only meaningful when field is 0 or 1 — the Color
+// field (2) has no text/cursor concept and never calls this.
+func (f connectionForm) activeFieldText() string {
+	if f.field == 0 {
+		return f.name
+	}
+	return f.uri
+}
+
+// setActiveFieldText writes newText back to whichever field (Name or URI)
+// is currently focused.
+func (f *connectionForm) setActiveFieldText(newText string) {
+	if f.field == 0 {
+		f.name = newText
+	} else {
+		f.uri = newText
+	}
+}
+
+// insertAtCursor inserts text into the active field at f.cursor (a rune
+// index, never a byte index — this always goes through []rune to avoid
+// splitting multi-byte UTF-8 characters), then advances the cursor past
+// the inserted text.
+func (f *connectionForm) insertAtCursor(text string) {
+	runes := []rune(f.activeFieldText())
+	inserted := []rune(text)
+	newRunes := make([]rune, 0, len(runes)+len(inserted))
+	newRunes = append(newRunes, runes[:f.cursor]...)
+	newRunes = append(newRunes, inserted...)
+	newRunes = append(newRunes, runes[f.cursor:]...)
+	f.setActiveFieldText(string(newRunes))
+	f.cursor += len(inserted)
+}
+
+// deleteBeforeCursor removes the rune immediately before f.cursor in the
+// active field, if any.
+func (f *connectionForm) deleteBeforeCursor() {
+	if f.cursor == 0 {
+		return
+	}
+	runes := []rune(f.activeFieldText())
+	newRunes := make([]rune, 0, len(runes)-1)
+	newRunes = append(newRunes, runes[:f.cursor-1]...)
+	newRunes = append(newRunes, runes[f.cursor:]...)
+	f.setActiveFieldText(string(newRunes))
+	f.cursor--
+}
+
+// textBeforeCursor and textAfterCursor split the active field's text at
+// the cursor, for rendering the cursor-blink marker at its real position
+// (View() uses these only when field is 0 or 1).
+func (f connectionForm) textBeforeCursor() string {
+	runes := []rune(f.activeFieldText())
+	if f.cursor > len(runes) {
+		return f.activeFieldText()
+	}
+	return string(runes[:f.cursor])
+}
+
+func (f connectionForm) textAfterCursor() string {
+	runes := []rune(f.activeFieldText())
+	if f.cursor > len(runes) {
+		return ""
+	}
+	return string(runes[f.cursor:])
 }
 
 func nextColor(current string, delta int) string {
@@ -255,11 +326,19 @@ func (m connectionPickerModel) View() string {
 		}
 		var b strings.Builder
 		b.WriteString(titleStyle.Render(title) + "\n\n")
-		b.WriteString("Nombre: " + m.form.name)
+		nameText := m.form.name
+		if m.form.field == 0 {
+			nameText = m.form.textBeforeCursor() + "_" + m.form.textAfterCursor()
+		}
+		b.WriteString("Nombre: " + nameText)
 		if m.form.field == 0 {
 			b.WriteString(" <")
 		}
-		b.WriteString("\nURI:    " + m.form.uri)
+		uriText := m.form.uri
+		if m.form.field == 1 {
+			uriText = m.form.textBeforeCursor() + "_" + m.form.textAfterCursor()
+		}
+		b.WriteString("\nURI:    " + uriText)
 		if m.form.field == 1 {
 			b.WriteString(" <")
 		}

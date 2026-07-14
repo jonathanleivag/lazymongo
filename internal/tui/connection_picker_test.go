@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -194,5 +195,120 @@ func TestConnectionPicker_TypingEDDuringFilterDoesNotTriggerEditOrDelete(t *test
 	}
 	if m.list.FilterQuery() != "ed" {
 		t.Fatalf("expected 'e' and 'd' to be added to the filter query, got %q", m.list.FilterQuery())
+	}
+}
+
+func TestConnectionForm_TypingInsertsAtCursorNotAlwaysAtEnd(t *testing.T) {
+	f := newConnectionForm()
+	for _, r := range "ac" {
+		f = f.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	f = f.update(tea.KeyMsg{Type: tea.KeyLeft})
+	f = f.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	if f.name != "abc" {
+		t.Fatalf("expected insertion at cursor to produce 'abc', got %q", f.name)
+	}
+}
+
+func TestConnectionForm_BackspaceRemovesRuneBeforeCursor(t *testing.T) {
+	f := newConnectionForm()
+	for _, r := range "abc" {
+		f = f.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	f = f.update(tea.KeyMsg{Type: tea.KeyLeft})
+	f = f.update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if f.name != "ac" {
+		t.Fatalf("expected backspace to remove 'b' (before cursor), got %q", f.name)
+	}
+}
+
+func TestConnectionForm_ArrowsMoveAndClampCursorInNameField(t *testing.T) {
+	f := newConnectionForm()
+	for _, r := range "ab" {
+		f = f.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if f.cursor != 2 {
+		t.Fatalf("expected cursor at end (2) after typing 'ab', got %d", f.cursor)
+	}
+	f = f.update(tea.KeyMsg{Type: tea.KeyLeft})
+	f = f.update(tea.KeyMsg{Type: tea.KeyLeft})
+	f = f.update(tea.KeyMsg{Type: tea.KeyLeft})
+	if f.cursor != 0 {
+		t.Fatalf("expected cursor clamped at 0, got %d", f.cursor)
+	}
+	f = f.update(tea.KeyMsg{Type: tea.KeyRight})
+	f = f.update(tea.KeyMsg{Type: tea.KeyRight})
+	f = f.update(tea.KeyMsg{Type: tea.KeyRight})
+	if f.cursor != 2 {
+		t.Fatalf("expected cursor clamped at 2 (end), got %d", f.cursor)
+	}
+}
+
+func TestConnectionForm_TabMovesCursorToEndOfNewlyActiveField(t *testing.T) {
+	f := newConnectionForm()
+	for _, r := range "myname" {
+		f = f.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	f = f.update(tea.KeyMsg{Type: tea.KeyTab})
+	for _, r := range "mongodb://x" {
+		f = f.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if f.cursor != len([]rune("mongodb://x")) {
+		t.Fatalf("expected cursor at end of URI (%d), got %d", len([]rune("mongodb://x")), f.cursor)
+	}
+
+	f = f.update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if f.cursor != len([]rune("myname")) {
+		t.Fatalf("expected cursor at end of Name (%d) after tabbing back, got %d", len([]rune("myname")), f.cursor)
+	}
+}
+
+func TestConnectionForm_LockedModeTabToURIStartsCursorAtEnd(t *testing.T) {
+	f := newEditConnectionForm(config.Connection{Name: "qa", URI: "mongodb://qa", Color: "verde"})
+	if f.cursor != len([]rune("mongodb://qa")) {
+		t.Fatalf("expected edit form to start with cursor at end of URI, got %d", f.cursor)
+	}
+	f = f.update(tea.KeyMsg{Type: tea.KeyTab})
+	f = f.update(tea.KeyMsg{Type: tea.KeyTab})
+	if f.cursor != len([]rune("mongodb://qa")) {
+		t.Fatalf("expected cursor back at end of URI after cycling through Color, got %d", f.cursor)
+	}
+}
+
+func TestConnectionForm_ColorFieldCyclingUnaffectedByCursorChanges(t *testing.T) {
+	f := newConnectionForm()
+	f = f.update(tea.KeyMsg{Type: tea.KeyTab})
+	f = f.update(tea.KeyMsg{Type: tea.KeyTab})
+	f = f.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	if f.color != "rojo" {
+		t.Fatalf("expected color to cycle to 'rojo' after one 'l', got %q", f.color)
+	}
+}
+
+func TestConnectionForm_InsertAndBackspaceHandleMultiByteRunesSafely(t *testing.T) {
+	f := newConnectionForm()
+	for _, r := range "ó" {
+		f = f.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if f.name != "ó" {
+		t.Fatalf("expected 'ó' inserted intact, got %q", f.name)
+	}
+	f = f.update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if f.name != "" {
+		t.Fatalf("expected backspace to remove the whole rune 'ó', got %q", f.name)
+	}
+}
+
+func TestConnectionPicker_ViewShowsCursorMarkerAtRealPositionInActiveField(t *testing.T) {
+	m := newConnectionPickerModel(nil)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	for _, r := range "ab" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+
+	view := m.View()
+	if !strings.Contains(view, "Nombre: a_b") {
+		t.Fatalf("expected the cursor marker between 'a' and 'b', got:\n%s", view)
 	}
 }
