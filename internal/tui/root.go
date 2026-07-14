@@ -942,7 +942,7 @@ func (m RootModel) View() string {
 	mainHeight := panelHeight*5 - 5
 	main := renderPanel(0, docTitle, docLines, docCursor, m.focus == panelDocuments, mainWidth, mainHeight)
 
-	footer := m.footerText()
+	footer := m.footerText() + helpHintStyle.Render("  |  Creado por jonathanleivag")
 
 	return composeScreen([]string{p1, p2, p3, p4, p5}, main, lastLogLines(m.log, 4), footer, mainWidth, 4)
 }
