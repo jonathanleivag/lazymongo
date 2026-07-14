@@ -23,6 +23,182 @@ func newTestRootModel() (*RootModel, *mongo.FakeClient) {
 	return &m, fake
 }
 
+func TestRootModel_DbCreateSubmittedMsgCreatesCollectionAndSelectsNewDatabase(t *testing.T) {
+	root, fake := newTestRootModel()
+	r := *root
+	r.dbList = newDbListModel([]string{"shop"})
+
+	model, cmd := r.Update(dbCreateSubmittedMsg{DBName: "reports", CollName: "events"})
+	r = model.(RootModel)
+	if cmd == nil {
+		t.Fatal("expected a command after dbCreateSubmittedMsg")
+	}
+	model, cmd = r.Update(cmd())
+	r = model.(RootModel)
+	if cmd == nil {
+		t.Fatal("expected a command after dbCreateCompletedMsg to reload databases")
+	}
+	model, _ = r.Update(cmd())
+	r = model.(RootModel)
+
+	if _, ok := fake.Databases["reports"]["events"]; !ok {
+		t.Fatalf("expected FakeClient to have created reports.events, got %+v", fake.Databases)
+	}
+	found := false
+	for _, item := range r.dbList.list.Items {
+		if item.ID == "reports" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected 'reports' in the reloaded databases list, got %+v", r.dbList.list.Items)
+	}
+	if r.db != "reports" {
+		t.Fatalf("expected active database to become 'reports', got %q", r.db)
+	}
+}
+
+func TestRootModel_DbDropCompletedMsgOnActiveDatabaseClearsDependentPanels(t *testing.T) {
+	root, fake := newTestRootModel()
+	r := *root
+	r.db = "shop"
+	r.coll = "orders"
+	r.dbList = newDbListModel([]string{"shop"})
+	r.collList = newCollListModel([]string{"orders"})
+
+	model, cmd := r.Update(dbDropConfirmedMsg{Name: "shop"})
+	r = model.(RootModel)
+	if cmd == nil {
+		t.Fatal("expected a command after dbDropConfirmedMsg")
+	}
+	model, _ = r.Update(cmd())
+	r = model.(RootModel)
+
+	if _, ok := fake.Databases["shop"]; ok {
+		t.Fatalf("expected FakeClient to have dropped 'shop', got %+v", fake.Databases)
+	}
+	if r.db != "" || r.coll != "" {
+		t.Fatalf("expected db/coll cleared after dropping the active database, got db=%q coll=%q", r.db, r.coll)
+	}
+	if len(r.collList.list.Items) != 0 {
+		t.Fatalf("expected collections list cleared, got %+v", r.collList.list.Items)
+	}
+}
+
+func TestRootModel_DbDropCompletedMsgOnNonActiveDatabaseOnlyReloadsList(t *testing.T) {
+	root, fake := newTestRootModel()
+	fake.Databases["archive"] = map[string][]bson.M{"old": {}}
+	r := *root
+	r.db = "shop"
+	r.coll = "orders"
+	r.dbList = newDbListModel([]string{"shop", "archive"})
+	r.collList = newCollListModel([]string{"orders"})
+
+	model, cmd := r.Update(dbDropConfirmedMsg{Name: "archive"})
+	r = model.(RootModel)
+	model, _ = r.Update(cmd())
+	r = model.(RootModel)
+
+	if r.db != "shop" || r.coll != "orders" {
+		t.Fatalf("expected db/coll untouched when dropping a non-active database, got db=%q coll=%q", r.db, r.coll)
+	}
+	if len(r.collList.list.Items) != 1 {
+		t.Fatalf("expected collections list untouched, got %+v", r.collList.list.Items)
+	}
+}
+
+func TestRootModel_CollCreateSubmittedMsgCreatesAndSelectsNewCollection(t *testing.T) {
+	root, fake := newTestRootModel()
+	r := *root
+	r.db = "shop"
+	r.collList = newCollListModel([]string{"orders"})
+
+	model, cmd := r.Update(collCreateSubmittedMsg{Name: "logs"})
+	r = model.(RootModel)
+	if cmd == nil {
+		t.Fatal("expected a command after collCreateSubmittedMsg")
+	}
+	model, cmd = r.Update(cmd())
+	r = model.(RootModel)
+	if cmd == nil {
+		t.Fatal("expected a command after collCreateCompletedMsg to reload collections")
+	}
+	model, _ = r.Update(cmd())
+	r = model.(RootModel)
+
+	if _, ok := fake.Databases["shop"]["logs"]; !ok {
+		t.Fatalf("expected FakeClient to have created shop.logs, got %+v", fake.Databases["shop"])
+	}
+	if r.coll != "logs" {
+		t.Fatalf("expected active collection to become 'logs', got %q", r.coll)
+	}
+}
+
+func TestRootModel_CollRenameSubmittedMsgRenamesAndFollowsCursor(t *testing.T) {
+	root, fake := newTestRootModel()
+	r := *root
+	r.db = "shop"
+	r.coll = "orders"
+	r.collList = newCollListModel([]string{"orders"})
+
+	model, cmd := r.Update(collRenameSubmittedMsg{OldName: "orders", NewName: "orders_v2"})
+	r = model.(RootModel)
+	model, cmd = r.Update(cmd())
+	r = model.(RootModel)
+	model, _ = r.Update(cmd())
+	r = model.(RootModel)
+
+	if _, ok := fake.Databases["shop"]["orders_v2"]; !ok {
+		t.Fatalf("expected FakeClient to have renamed to shop.orders_v2, got %+v", fake.Databases["shop"])
+	}
+	if r.coll != "orders_v2" {
+		t.Fatalf("expected active collection to follow the rename to 'orders_v2', got %q", r.coll)
+	}
+}
+
+func TestRootModel_CollDropCompletedMsgOnActiveCollectionClearsDocumentsAndIndexes(t *testing.T) {
+	root, _ := newTestRootModel()
+	r := *root
+	r.db = "shop"
+	r.coll = "orders"
+	r.collList = newCollListModel([]string{"orders"})
+	r.docList = newDocListModel([]bson.M{{"_id": "o1"}}, 1, 0, pageSize)
+
+	model, cmd := r.Update(collDropConfirmedMsg{Name: "orders"})
+	r = model.(RootModel)
+	model, _ = r.Update(cmd())
+	r = model.(RootModel)
+
+	if r.coll != "" {
+		t.Fatalf("expected coll cleared after dropping the active collection, got %q", r.coll)
+	}
+	if len(r.docList.docs) != 0 {
+		t.Fatalf("expected documents cleared, got %+v", r.docList.docs)
+	}
+}
+
+func TestRootModel_CollDropCompletedMsgOnNonActiveCollectionOnlyReloadsList(t *testing.T) {
+	root, fake := newTestRootModel()
+	fake.Databases["shop"]["logs"] = []bson.M{}
+	r := *root
+	r.db = "shop"
+	r.coll = "orders"
+	r.collList = newCollListModel([]string{"orders", "logs"})
+	r.docList = newDocListModel([]bson.M{{"_id": "o1"}}, 1, 0, pageSize)
+
+	model, cmd := r.Update(collDropConfirmedMsg{Name: "logs"})
+	r = model.(RootModel)
+	model, _ = r.Update(cmd())
+	r = model.(RootModel)
+
+	if r.coll != "orders" {
+		t.Fatalf("expected coll untouched when dropping a non-active collection, got %q", r.coll)
+	}
+	if len(r.docList.docs) != 1 {
+		t.Fatalf("expected documents untouched, got %+v", r.docList.docs)
+	}
+}
+
 func TestRootModel_InitConnectsAndLoadsDatabases(t *testing.T) {
 	m, _ := newTestRootModel()
 	cmd := m.Init()
@@ -32,8 +208,8 @@ func TestRootModel_InitConnectsAndLoadsDatabases(t *testing.T) {
 	msg := cmd()
 	newModel, _ := m.Update(msg)
 	root := newModel.(RootModel)
-	if len(root.dbList.Items) != 1 || root.dbList.Items[0].ID != "shop" {
-		t.Fatalf("expected dbList populated with 'shop', got %+v", root.dbList.Items)
+	if len(root.dbList.list.Items) != 1 || root.dbList.list.Items[0].ID != "shop" {
+		t.Fatalf("expected dbList populated with 'shop', got %+v", root.dbList.list.Items)
 	}
 }
 
@@ -172,8 +348,8 @@ func TestRootModel_CursorMoveInDatabasesCascadesToCollections(t *testing.T) {
 	}
 	model, _ = root.Update(cmd())
 	root = model.(RootModel)
-	if len(root.collList.Items) != 2 {
-		t.Fatalf("expected 2 collections loaded for 'shop', got %+v", root.collList.Items)
+	if len(root.collList.list.Items) != 2 {
+		t.Fatalf("expected 2 collections loaded for 'shop', got %+v", root.collList.list.Items)
 	}
 }
 
@@ -193,16 +369,16 @@ func TestRootModel_FuzzyFilterInDatabasesCascadesEvenWhenCursorStaysAtZero(t *te
 
 	model, _ := root.Update(connectedMsg{Databases: []string{"admin", "shop"}})
 	root = model.(RootModel)
-	if root.dbList.Cursor != 0 || root.dbList.Items[0].ID != "admin" {
-		t.Fatalf("precondition failed: expected cursor 0 on 'admin', got cursor=%d items=%+v", root.dbList.Cursor, root.dbList.Items)
+	if root.dbList.list.Cursor != 0 || root.dbList.list.Items[0].ID != "admin" {
+		t.Fatalf("precondition failed: expected cursor 0 on 'admin', got cursor=%d items=%+v", root.dbList.list.Cursor, root.dbList.list.Items)
 	}
 
 	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
 	root = model.(RootModel)
 	model, cmd := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("shop")})
 	root = model.(RootModel)
-	if root.dbList.Cursor != 0 || len(root.dbList.Items) != 1 || root.dbList.Items[0].ID != "shop" {
-		t.Fatalf("precondition failed: expected filter narrowed to 'shop' at cursor 0, got cursor=%d items=%+v", root.dbList.Cursor, root.dbList.Items)
+	if root.dbList.list.Cursor != 0 || len(root.dbList.list.Items) != 1 || root.dbList.list.Items[0].ID != "shop" {
+		t.Fatalf("precondition failed: expected filter narrowed to 'shop' at cursor 0, got cursor=%d items=%+v", root.dbList.list.Cursor, root.dbList.list.Items)
 	}
 	if cmd == nil {
 		t.Fatal("expected a command (collections load) after fuzzy-filtering to a different database, even though the cursor index stayed at 0")
@@ -213,8 +389,8 @@ func TestRootModel_FuzzyFilterInDatabasesCascadesEvenWhenCursorStaysAtZero(t *te
 	if root.db != "shop" {
 		t.Fatalf("expected m.db updated to 'shop' after fuzzy-filtering, got %q", root.db)
 	}
-	if len(root.collList.Items) != 1 || root.collList.Items[0].ID != "orders" {
-		t.Fatalf("expected 1 collection loaded for 'shop', got %+v", root.collList.Items)
+	if len(root.collList.list.Items) != 1 || root.collList.list.Items[0].ID != "orders" {
+		t.Fatalf("expected 1 collection loaded for 'shop', got %+v", root.collList.list.Items)
 	}
 }
 
@@ -241,14 +417,14 @@ func TestRootModel_EnterAfterFilteringDatabasesLetsDigitJumpToNextPanel(t *testi
 
 	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	root = model.(RootModel)
-	if root.dbList.Filtering() {
+	if root.dbList.list.Filtering() {
 		t.Fatal("expected filtering to be false after Enter")
 	}
 
 	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
 	root = model.(RootModel)
 	if root.focus != panelCollections {
-		t.Fatalf("expected '3' after Enter to jump focus to panelCollections, got focus=%v (dbList filter query=%q)", root.focus, root.dbList.FilterQuery())
+		t.Fatalf("expected '3' after Enter to jump focus to panelCollections, got focus=%v (dbList filter query=%q)", root.focus, root.dbList.list.FilterQuery())
 	}
 }
 
@@ -272,14 +448,14 @@ func TestRootModel_FuzzyFilterInCollectionsCascadesEvenWhenCursorStaysAtZero(t *
 	// FakeClient.ListCollections iterates a Go map, so its order is not
 	// deterministic — build collList directly with a fixed order instead of
 	// depending on that order to land "logs" at cursor 0.
-	root.collList = newCollectionListModel([]string{"logs", "orders"})
+	root.collList = newCollListModel([]string{"logs", "orders"})
 
 	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
 	root = model.(RootModel)
 	model, cmd := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("orders")})
 	root = model.(RootModel)
-	if root.collList.Cursor != 0 || len(root.collList.Items) != 1 || root.collList.Items[0].ID != "orders" {
-		t.Fatalf("precondition failed: expected filter narrowed to 'orders' at cursor 0, got cursor=%d items=%+v", root.collList.Cursor, root.collList.Items)
+	if root.collList.list.Cursor != 0 || len(root.collList.list.Items) != 1 || root.collList.list.Items[0].ID != "orders" {
+		t.Fatalf("precondition failed: expected filter narrowed to 'orders' at cursor 0, got cursor=%d items=%+v", root.collList.list.Cursor, root.collList.list.Items)
 	}
 	if cmd == nil {
 		t.Fatal("expected a command (indexes+documents load) after fuzzy-filtering to a different collection, even though the cursor index stayed at 0")
@@ -368,17 +544,17 @@ func TestRootModel_DocumentEnterOpensDocDetailPopup(t *testing.T) {
 
 	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
 	root = model.(RootModel)
-	root = driveCursorToItem(t, root, root.dbList, "shop")
+	root = driveCursorToItem(t, root, root.dbList.list, "shop")
 	if root.db != "shop" {
 		t.Fatalf("expected cursor to land on 'shop', got db=%q", root.db)
 	}
-	if len(root.collList.Items) != 2 {
-		t.Fatalf("expected 2 collections loaded for 'shop', got %+v", root.collList.Items)
+	if len(root.collList.list.Items) != 2 {
+		t.Fatalf("expected 2 collections loaded for 'shop', got %+v", root.collList.list.Items)
 	}
 
 	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
 	root = model.(RootModel)
-	root = driveCursorToItem(t, root, root.collList, "orders")
+	root = driveCursorToItem(t, root, root.collList.list, "orders")
 	if root.coll != "orders" {
 		t.Fatalf("expected cursor to land on 'orders', got coll=%q", root.coll)
 	}
@@ -474,7 +650,7 @@ func flattenBatchMsg(t *testing.T, msg tea.Msg) []tea.Msg {
 func TestRootModel_InTextEntry_TrueWhileFilteringDatabasesPanel(t *testing.T) {
 	m, _ := newTestRootModel()
 	root := *m
-	root.dbList = newDatabaseListModel([]string{"shop", "admin"})
+	root.dbList = newDbListModel([]string{"shop", "admin"})
 	root.focus = panelDatabases
 
 	model, _ := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
@@ -487,7 +663,7 @@ func TestRootModel_InTextEntry_TrueWhileFilteringDatabasesPanel(t *testing.T) {
 func TestRootModel_DigitDuringFilterAddsToQueryInsteadOfSwitchingFocus(t *testing.T) {
 	m, _ := newTestRootModel()
 	root := *m
-	root.dbList = newDatabaseListModel([]string{"shop-v1", "shop-v2"})
+	root.dbList = newDbListModel([]string{"shop-v1", "shop-v2"})
 	root.focus = panelDatabases
 
 	model, _ := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
@@ -496,15 +672,15 @@ func TestRootModel_DigitDuringFilterAddsToQueryInsteadOfSwitchingFocus(t *testin
 	if r.focus != panelDatabases {
 		t.Fatalf("expected focus to remain on Databases while its filter query contains a digit, got %v", r.focus)
 	}
-	if len(r.dbList.Items) != 1 || r.dbList.Items[0].ID != "shop-v2" {
-		t.Fatalf("expected filter to narrow to 'shop-v2', got %+v", r.dbList.Items)
+	if len(r.dbList.list.Items) != 1 || r.dbList.list.Items[0].ID != "shop-v2" {
+		t.Fatalf("expected filter to narrow to 'shop-v2', got %+v", r.dbList.list.Items)
 	}
 }
 
 func TestRootModel_QuestionMarkDuringFilterDoesNotOpenHelp(t *testing.T) {
 	m, _ := newTestRootModel()
 	root := *m
-	root.dbList = newDatabaseListModel([]string{"shop"})
+	root.dbList = newDbListModel([]string{"shop"})
 	root.focus = panelDatabases
 
 	model, _ := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
@@ -513,15 +689,15 @@ func TestRootModel_QuestionMarkDuringFilterDoesNotOpenHelp(t *testing.T) {
 	if r.popup == popupHelp {
 		t.Fatal("expected '?' typed into an active filter query to NOT open help")
 	}
-	if r.dbList.FilterQuery() != "?" {
-		t.Fatalf("expected '?' to be added to the filter query, got %q", r.dbList.FilterQuery())
+	if r.dbList.list.FilterQuery() != "?" {
+		t.Fatalf("expected '?' to be added to the filter query, got %q", r.dbList.list.FilterQuery())
 	}
 }
 
 func TestRootModel_EscDuringDatabaseFilterRestoresFullListWithoutLeavingPanel(t *testing.T) {
 	m, _ := newTestRootModel()
 	root := *m
-	root.dbList = newDatabaseListModel([]string{"shop", "admin"})
+	root.dbList = newDbListModel([]string{"shop", "admin"})
 	root.focus = panelDatabases
 
 	model, _ := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
@@ -531,8 +707,8 @@ func TestRootModel_EscDuringDatabaseFilterRestoresFullListWithoutLeavingPanel(t 
 	if r.focus != panelDatabases {
 		t.Fatalf("expected Esc to only clear the filter, not change focus, got focus=%v", r.focus)
 	}
-	if len(r.dbList.Items) != 2 {
-		t.Fatalf("expected full database list restored, got %d items", len(r.dbList.Items))
+	if len(r.dbList.list.Items) != 2 {
+		t.Fatalf("expected full database list restored, got %d items", len(r.dbList.list.Items))
 	}
 }
 
@@ -896,7 +1072,7 @@ func TestRootModel_SwitchingCollectionsClearsStaleFilterText(t *testing.T) {
 
 	model, _ := m.Update(m.Init()())
 	root := model.(RootModel)
-	root.collList = newCollectionListModel([]string{"orders", "users"})
+	root.collList = newCollListModel([]string{"orders", "users"})
 	root.docList.filter = `{"name":"Ana"}`
 	root.focus = panelCollections
 

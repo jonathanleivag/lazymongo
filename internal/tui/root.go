@@ -44,8 +44,8 @@ type RootModel struct {
 	filter bson.M
 
 	connPicker connectionPickerModel
-	dbList     listModel
-	collList   listModel
+	dbList     dbListModel
+	collList   collListModel
 	docList    docListModel
 	docDetail  docDetailModel
 	fieldEdit  fieldEditModel
@@ -135,16 +135,42 @@ func (m RootModel) connectAndListDatabases() tea.Cmd {
 	}
 }
 
+type databasesLoadedMsg struct {
+	Databases []string
+	Err       error
+	SelectDB  string
+}
+
+// loadDatabases refreshes the Databases panel without reconnecting
+// (unlike connectAndListDatabases, used only for the initial connect).
+// When selectDB is non-empty, the resulting handler positions the cursor
+// on it and cascades into loadCollections, mirroring what moving the
+// Databases cursor there by hand would do.
+func (m RootModel) loadDatabases(selectDB string) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		names, err := client.ListDatabases(context.Background())
+		return databasesLoadedMsg{Databases: names, Err: err, SelectDB: selectDB}
+	}
+}
+
 type collectionsLoadedMsg struct {
 	Collections []string
 	Err         error
+	SelectName  string
 }
 
-func (m RootModel) loadCollections() tea.Cmd {
+// loadCollections refreshes the Collections panel. When selectName is
+// non-empty, the resulting handler positions the cursor on it and
+// cascades into loadIndexes/loadDocuments, mirroring what moving the
+// Collections cursor there by hand would do. Manual cursor movement
+// (case panelCollections below) always passes "" — it already does its
+// own cascade inline.
+func (m RootModel) loadCollections(selectName string) tea.Cmd {
 	client, db := m.client, m.db
 	return func() tea.Msg {
 		names, err := client.ListCollections(context.Background(), db)
-		return collectionsLoadedMsg{Collections: names, Err: err}
+		return collectionsLoadedMsg{Collections: names, Err: err, SelectName: selectName}
 	}
 }
 
@@ -188,6 +214,27 @@ func (m RootModel) loadIndexes() tea.Cmd {
 type docWriteCompletedMsg struct{ Err error }
 type indexWriteCompletedMsg struct{ Err error }
 
+type dbCreateCompletedMsg struct {
+	Err    error
+	DBName string
+}
+type dbDropCompletedMsg struct {
+	Err  error
+	Name string
+}
+type collCreateCompletedMsg struct {
+	Err  error
+	Name string
+}
+type collRenameCompletedMsg struct {
+	Err     error
+	NewName string
+}
+type collDropCompletedMsg struct {
+	Err  error
+	Name string
+}
+
 // inTextEntry reports whether the current focus/popup is in an active
 // text-entry sub-state, where printable keys like "?" must be typed
 // literally rather than treated as a global shortcut.
@@ -199,9 +246,15 @@ func (m RootModel) inTextEntry() bool {
 		return true
 	case m.focus == panelConnections && m.connPicker.list.Filtering():
 		return true
-	case m.focus == panelDatabases && m.dbList.Filtering():
+	case m.focus == panelDatabases && m.dbList.list.Filtering():
 		return true
-	case m.focus == panelCollections && m.collList.Filtering():
+	case m.focus == panelDatabases && m.dbList.creating:
+		return true
+	case m.focus == panelCollections && m.collList.list.Filtering():
+		return true
+	case m.focus == panelCollections && m.collList.creating:
+		return true
+	case m.focus == panelCollections && m.collList.editing:
 		return true
 	case m.focus == panelIndexes && m.idxList.creating:
 		return true
@@ -272,7 +325,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.Err
 			return m, nil
 		}
-		m.dbList = newDatabaseListModel(msg.Databases)
+		m.dbList = newDbListModel(msg.Databases)
 		m.logf("Conectado a %s", m.conn.Name)
 		return m, nil
 
@@ -331,13 +384,136 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.Err
 		return m, nil
 
+	case databasesLoadedMsg:
+		if msg.Err != nil {
+			m.err = msg.Err
+			return m, nil
+		}
+		m.dbList = newDbListModel(msg.Databases)
+		if msg.SelectDB == "" {
+			return m, nil
+		}
+		for i, item := range m.dbList.list.Items {
+			if item.ID == msg.SelectDB {
+				m.dbList.list.Cursor = i
+				break
+			}
+		}
+		m.db = msg.SelectDB
+		return m, m.loadCollections("")
+
+	case dbCreateSubmittedMsg:
+		client, dbName, collName := m.client, msg.DBName, msg.CollName
+		m.logf("Creando database %q (collection inicial %q)", dbName, collName)
+		return m, func() tea.Msg {
+			err := client.CreateCollection(context.Background(), dbName, collName)
+			return dbCreateCompletedMsg{Err: err, DBName: dbName}
+		}
+
+	case dbCreateCompletedMsg:
+		if msg.Err != nil {
+			m.err = msg.Err
+			return m, nil
+		}
+		return m, m.loadDatabases(msg.DBName)
+
+	case dbDropConfirmedMsg:
+		client, name := m.client, msg.Name
+		m.logf("Borrando database %q", name)
+		return m, func() tea.Msg {
+			err := client.DropDatabase(context.Background(), name)
+			return dbDropCompletedMsg{Err: err, Name: name}
+		}
+
+	case dbDropCompletedMsg:
+		if msg.Err != nil {
+			m.err = msg.Err
+			return m, nil
+		}
+		if msg.Name == m.db {
+			m.db = ""
+			m.coll = ""
+			m.page = 0
+			m.filter = nil
+			m.collList = newCollListModel(nil)
+			m.docList = newDocListModel(nil, 0, 0, pageSize)
+			m.idxList = newIdxListModel(nil)
+		}
+		return m, m.loadDatabases("")
+
 	case collectionsLoadedMsg:
 		if msg.Err != nil {
 			m.err = msg.Err
 			return m, nil
 		}
-		m.collList = newCollectionListModel(msg.Collections)
-		return m, nil
+		m.collList = newCollListModel(msg.Collections)
+		if msg.SelectName == "" {
+			return m, nil
+		}
+		for i, item := range m.collList.list.Items {
+			if item.ID == msg.SelectName {
+				m.collList.list.Cursor = i
+				break
+			}
+		}
+		m.coll = msg.SelectName
+		m.page = 0
+		m.filter = nil
+		m.docList.filter = ""
+		m.docList.filterCursor = 0
+		return m, tea.Batch(m.loadIndexes(), m.loadDocuments(bson.M{}))
+
+	case collCreateSubmittedMsg:
+		client, db, name := m.client, m.db, msg.Name
+		m.logf("Creando collection %q en %q", name, db)
+		return m, func() tea.Msg {
+			err := client.CreateCollection(context.Background(), db, name)
+			return collCreateCompletedMsg{Err: err, Name: name}
+		}
+
+	case collCreateCompletedMsg:
+		if msg.Err != nil {
+			m.err = msg.Err
+			return m, nil
+		}
+		return m, m.loadCollections(msg.Name)
+
+	case collRenameSubmittedMsg:
+		client, db, oldName, newName := m.client, m.db, msg.OldName, msg.NewName
+		m.logf("Renombrando collection %q a %q en %q", oldName, newName, db)
+		return m, func() tea.Msg {
+			err := client.RenameCollection(context.Background(), db, oldName, newName)
+			return collRenameCompletedMsg{Err: err, NewName: newName}
+		}
+
+	case collRenameCompletedMsg:
+		if msg.Err != nil {
+			m.err = msg.Err
+			return m, nil
+		}
+		return m, m.loadCollections(msg.NewName)
+
+	case collDropConfirmedMsg:
+		client, db, name := m.client, m.db, msg.Name
+		m.logf("Borrando collection %q en %q", name, db)
+		return m, func() tea.Msg {
+			err := client.DropCollection(context.Background(), db, name)
+			return collDropCompletedMsg{Err: err, Name: name}
+		}
+
+	case collDropCompletedMsg:
+		if msg.Err != nil {
+			m.err = msg.Err
+			return m, nil
+		}
+		if msg.Name == m.coll {
+			m.coll = ""
+			m.page = 0
+			m.filter = nil
+			m.docList = newDocListModel(nil, 0, 0, pageSize)
+			m.idxList = newIdxListModel(nil)
+		}
+		return m, m.loadCollections("")
 
 	case documentsLoadedMsg:
 		if msg.Err != nil {
@@ -495,13 +671,13 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// don't handle it here: cursor movement above already cascades into loading
 		// collections for the highlighted database, so Enter has nothing left to do.
 		// Do not "fix" this into an itemSelectedMsg handler.
-		beforeID := highlightedItemID(m.dbList.Items, m.dbList.Cursor)
+		beforeID := highlightedItemID(m.dbList.list.Items, m.dbList.list.Cursor)
 		var listCmd tea.Cmd
 		m.dbList, listCmd = m.dbList.Update(msg)
-		afterID := highlightedItemID(m.dbList.Items, m.dbList.Cursor)
+		afterID := highlightedItemID(m.dbList.list.Items, m.dbList.list.Cursor)
 		if afterID != "" && afterID != beforeID {
 			m.db = afterID
-			return m, m.loadCollections()
+			return m, m.loadCollections("")
 		}
 		return m, listCmd
 
@@ -509,10 +685,10 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Same as panelDatabases above: Enter is a silent no-op by design, since
 		// cursor movement already cascades into loading indexes/documents for the
 		// highlighted collection.
-		beforeID := highlightedItemID(m.collList.Items, m.collList.Cursor)
+		beforeID := highlightedItemID(m.collList.list.Items, m.collList.list.Cursor)
 		var listCmd tea.Cmd
 		m.collList, listCmd = m.collList.Update(msg)
-		afterID := highlightedItemID(m.collList.Items, m.collList.Cursor)
+		afterID := highlightedItemID(m.collList.list.Items, m.collList.list.Cursor)
 		if afterID != "" && afterID != beforeID {
 			m.coll = afterID
 			m.page = 0
@@ -648,6 +824,12 @@ func (m RootModel) View() string {
 	if m.focus == panelIndexes && (m.idxList.creating || m.idxList.confirmingDrop) {
 		return renderPopupOverlay(m.idxList.View(), m.width, m.height)
 	}
+	if m.focus == panelDatabases && (m.dbList.creating || m.dbList.confirmingDrop) {
+		return renderPopupOverlay(m.dbList.View(), m.width, m.height)
+	}
+	if m.focus == panelCollections && (m.collList.creating || m.collList.editing || m.collList.confirmingDrop) {
+		return renderPopupOverlay(m.collList.View(), m.width, m.height)
+	}
 
 	width, height := m.width, m.height
 	if width <= 0 {
@@ -670,12 +852,12 @@ func (m RootModel) View() string {
 	statusLines := []string{colorStyle(m.conn.Color).Render(m.conn.Name), fmt.Sprintf("%s.%s", m.db, m.coll)}
 
 	dbTitle := "Databases"
-	if m.dbList.Filtering() {
-		dbTitle = "Databases — Buscar: " + m.dbList.FilterQuery() + "_"
+	if m.dbList.list.Filtering() {
+		dbTitle = "Databases — Buscar: " + m.dbList.list.FilterQuery() + "_"
 	}
 	collTitle := "Collections"
-	if m.collList.Filtering() {
-		collTitle = "Collections — Buscar: " + m.collList.FilterQuery() + "_"
+	if m.collList.list.Filtering() {
+		collTitle = "Collections — Buscar: " + m.collList.list.FilterQuery() + "_"
 	}
 	idxTitle := "Indexes"
 	if m.idxList.Filtering() {
@@ -687,8 +869,8 @@ func (m RootModel) View() string {
 	}
 
 	p1 := renderPanel(1, "Status", statusLines, 0, m.focus == panelStatus, sidebarWidth, panelHeight)
-	p2 := renderPanel(2, dbTitle, labelsFromListModel(m.dbList), m.dbList.Cursor, m.focus == panelDatabases, sidebarWidth, panelHeight)
-	p3 := renderPanel(3, collTitle, labelsFromListModel(m.collList), m.collList.Cursor, m.focus == panelCollections, sidebarWidth, panelHeight)
+	p2 := renderPanel(2, dbTitle, labelsFromListModel(m.dbList.list), m.dbList.list.Cursor, m.focus == panelDatabases, sidebarWidth, panelHeight)
+	p3 := renderPanel(3, collTitle, labelsFromListModel(m.collList.list), m.collList.list.Cursor, m.focus == panelCollections, sidebarWidth, panelHeight)
 	p4 := renderPanel(4, idxTitle, labelsFromIndexes(m.idxList), m.idxList.cursor, m.focus == panelIndexes, sidebarWidth, panelHeight)
 	p5 := renderPanel(5, connTitle, labelsFromListModel(m.connPicker.list), m.connPicker.list.Cursor, m.focus == panelConnections, sidebarWidth, panelHeight)
 

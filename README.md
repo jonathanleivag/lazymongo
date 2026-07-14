@@ -26,8 +26,8 @@ Personal TUI for browsing/editing MongoDB, reusing `~/.config/mongo-connections.
 | `/` | buscar/filtrar: fuzzy-search por nombre en Databases/Collections/Indexes/Conexiones; filtro de query Mongo en Documentos |
 | `Ctrl+f` | fuzzy-search entre los documentos ya cargados en pantalla (no dispara una nueva query) |
 | `n`/`p` | next/previous page |
-| `i`, `a` | insert document / create connection or index |
-| `e` | edit field inline (document detail popup) / edit a connection's URI and color (Conexiones panel — name stays fixed) |
+| `i`, `a` | insert document / create connection, index, database, or collection |
+| `e` | edit field inline (document detail popup) / edit a connection's name, URI, and color / rename a collection |
 | `E` | edit full document in `$EDITOR` |
 | `d`, `x` | delete (always confirms) |
 | `?` | help |
