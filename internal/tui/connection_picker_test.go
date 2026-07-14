@@ -101,32 +101,8 @@ func TestConnectionPicker_EPreFillsEditFormWithCurrentValues(t *testing.T) {
 	if m.form.name != "qa" || m.form.uri != "mongodb://qa:27017" || m.form.color != "verde" {
 		t.Fatalf("expected form pre-filled with current values, got %+v", m.form)
 	}
-	if m.form.field != 1 {
-		t.Fatalf("expected edit form to start on the URI field (1), got %d", m.form.field)
-	}
-}
-
-func TestConnectionForm_NameFieldIsReadOnlyWhenLocked(t *testing.T) {
-	f := newEditConnectionForm(config.Connection{Name: "qa", URI: "mongodb://qa", Color: "verde"})
-	f.field = 0 // force onto the Name field to prove typing is still rejected
-	f = f.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
-	if f.name != "qa" {
-		t.Fatalf("expected Name to stay unchanged when locked, got %q", f.name)
-	}
-}
-
-func TestConnectionForm_TabInLockedModeOnlyCyclesURIAndColor(t *testing.T) {
-	f := newEditConnectionForm(config.Connection{Name: "qa", URI: "mongodb://qa", Color: "verde"})
-	if f.field != 1 {
-		t.Fatalf("expected edit form to start on field 1 (URI), got %d", f.field)
-	}
-	f = f.update(tea.KeyMsg{Type: tea.KeyTab})
-	if f.field != 2 {
-		t.Fatalf("expected Tab to move to field 2 (Color), got %d", f.field)
-	}
-	f = f.update(tea.KeyMsg{Type: tea.KeyTab})
-	if f.field != 1 {
-		t.Fatalf("expected Tab to cycle back to field 1 (URI), skipping Name, got %d", f.field)
+	if m.form.field != 0 {
+		t.Fatalf("expected edit form to start on the Name field (0), got %d", m.form.field)
 	}
 }
 
@@ -137,6 +113,7 @@ func TestConnectionPicker_EnterInEditModeReturnsACommand(t *testing.T) {
 	m := newConnectionPickerModel(conns)
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
 
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab}) // move focus from Name to URI
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
 	if m.form.uri != "mongodb://qa:270172" {
 		t.Fatalf("expected the edited URI to accumulate, got %q", m.form.uri)
@@ -263,15 +240,30 @@ func TestConnectionForm_TabMovesCursorToEndOfNewlyActiveField(t *testing.T) {
 	}
 }
 
-func TestConnectionForm_LockedModeTabToURIStartsCursorAtEnd(t *testing.T) {
+func TestConnectionForm_NameFieldIsEditableInEditForm(t *testing.T) {
 	f := newEditConnectionForm(config.Connection{Name: "qa", URI: "mongodb://qa", Color: "verde"})
-	if f.cursor != len([]rune("mongodb://qa")) {
-		t.Fatalf("expected edit form to start with cursor at end of URI, got %d", f.cursor)
+	if f.field != 0 {
+		t.Fatalf("expected edit form to start on field 0 (Name), got %d", f.field)
+	}
+	f = f.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	if f.name != "qax" {
+		t.Fatalf("expected Name editable in edit form, got %q", f.name)
+	}
+}
+
+func TestConnectionForm_TabInEditFormCyclesThroughAllThreeFields(t *testing.T) {
+	f := newEditConnectionForm(config.Connection{Name: "qa", URI: "mongodb://qa", Color: "verde"})
+	f = f.update(tea.KeyMsg{Type: tea.KeyTab})
+	if f.field != 1 {
+		t.Fatalf("expected Tab to move from Name to URI (field 1), got %d", f.field)
 	}
 	f = f.update(tea.KeyMsg{Type: tea.KeyTab})
+	if f.field != 2 {
+		t.Fatalf("expected Tab to move from URI to Color (field 2), got %d", f.field)
+	}
 	f = f.update(tea.KeyMsg{Type: tea.KeyTab})
-	if f.cursor != len([]rune("mongodb://qa")) {
-		t.Fatalf("expected cursor back at end of URI after cycling through Color, got %d", f.cursor)
+	if f.field != 0 {
+		t.Fatalf("expected Tab to wrap from Color back to Name (field 0), got %d", f.field)
 	}
 }
 

@@ -22,9 +22,8 @@ type connectionForm struct {
 	name   string
 	uri    string
 	color  string
-	field  int  // 0=name, 1=uri, 2=color
-	locked bool // when true, Name is read-only and Tab only cycles URI/Color
-	cursor int  // rune index within whichever of Name/URI (field 0 or 1) is active
+	field  int // 0=name, 1=uri, 2=color
+	cursor int // rune index within whichever of Name/URI (field 0 or 1) is active
 }
 
 func newConnectionForm() connectionForm {
@@ -32,41 +31,25 @@ func newConnectionForm() connectionForm {
 }
 
 // newEditConnectionForm pre-fills the form with an existing connection's
-// current values, locking the Name field (the array key can't be renamed
-// through this form) and starting focus on URI, with the cursor at the end
-// of the pre-filled URI (ready to keep typing, like tabbing into a normal
-// form input).
+// current values, starting focus on Name with the cursor at its end —
+// matching newConnectionForm's default start point. Name is fully editable
+// here too; connectionPickerModel decides at submit time whether a changed
+// Name means a rename (see editingOriginalName).
 func newEditConnectionForm(conn config.Connection) connectionForm {
 	return connectionForm{
 		name: conn.Name, uri: conn.URI, color: conn.Color,
-		field: 1, locked: true, cursor: len([]rune(conn.URI)),
+		field: 0, cursor: len([]rune(conn.Name)),
 	}
 }
 
 func (f connectionForm) update(msg tea.KeyMsg) connectionForm {
 	switch msg.String() {
 	case "tab":
-		if f.locked {
-			if f.field == 1 {
-				f.field = 2
-			} else {
-				f.field = 1
-			}
-		} else {
-			f.field = (f.field + 1) % 3
-		}
+		f.field = (f.field + 1) % 3
 		f.cursor = len([]rune(f.activeFieldText()))
 		return f
 	case "shift+tab":
-		if f.locked {
-			if f.field == 1 {
-				f.field = 2
-			} else {
-				f.field = 1
-			}
-		} else {
-			f.field = (f.field + 2) % 3
-		}
+		f.field = (f.field + 2) % 3
 		f.cursor = len([]rune(f.activeFieldText()))
 		return f
 	}
@@ -91,14 +74,8 @@ func (f connectionForm) update(msg tea.KeyMsg) connectionForm {
 			f.cursor++
 		}
 	case tea.KeyBackspace:
-		if f.field == 0 && f.locked {
-			return f
-		}
 		f.deleteBeforeCursor()
 	case tea.KeyRunes:
-		if f.field == 0 && f.locked {
-			return f
-		}
 		f.insertAtCursor(string(msg.Runes))
 	}
 	return f
