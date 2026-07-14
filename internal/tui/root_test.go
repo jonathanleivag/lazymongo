@@ -1085,3 +1085,50 @@ func TestRootModel_SwitchingCollectionsClearsStaleFilterText(t *testing.T) {
 		t.Fatalf("expected the stale filter text from the previous collection to be cleared immediately, got %q", root.docList.FilterText())
 	}
 }
+
+func TestRootModel_SortingAppliesAndCarriesOver(t *testing.T) {
+	fake := mongo.NewFakeClient()
+	fake.Databases["shop"] = map[string][]bson.M{
+		"orders": {{"_id": "o1", "total": int32(10)}, {"_id": "o2", "total": int32(20)}},
+		"users":  {{"_id": "u1", "name": "Beto"}},
+	}
+	conn := config.Connection{Name: "qa", URI: "mongodb://fake", Color: "verde"}
+	m := NewRootModel(fake, &conn)
+
+	model, _ := m.Update(m.Init()())
+	root := model.(RootModel)
+	root.collList = newCollListModel([]string{"orders", "users"})
+	root.coll = "orders"
+	root.focus = panelDocuments
+
+	// Apply sort by typing and pressing Enter
+	root.docList.sorting = true
+	root.docList.sort = `{"total": -1}`
+	model, cmd := root.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	root = model.(RootModel)
+	if cmd == nil {
+		t.Fatal("expected command to reload documents after sort submission")
+	}
+
+	if root.sort == nil || root.sort["total"] != int32(-1) {
+		t.Fatalf("expected root.sort to be applied, got %+v", root.sort)
+	}
+
+	// Load documents (simulate reload complete)
+	model, _ = root.Update(cmd())
+	root = model.(RootModel)
+	if root.docList.SortText() != `{"total": -1}` {
+		t.Fatalf("expected sort query to carry over, got %q", root.docList.SortText())
+	}
+
+	// Switch to different collection "users"
+	root.focus = panelCollections
+	model, cmd = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")}) // moves to "users"
+	root = model.(RootModel)
+	if cmd == nil {
+		t.Fatal("expected a command after moving to different collection")
+	}
+	if root.sort != nil || root.docList.SortText() != "" {
+		t.Fatalf("expected sort to be cleared when switching collections, got sort=%+v SortText=%q", root.sort, root.docList.SortText())
+	}
+}

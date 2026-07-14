@@ -47,3 +47,13 @@ func TestRenderPanel_EmptyItemsDoesNotPanic(t *testing.T) {
 		t.Fatalf("expected title even with no items, got:\n%s", out)
 	}
 }
+
+func TestRenderPanel_CursorStripsAnsi(t *testing.T) {
+	coloredLine := "\x1b[32mpawmatch\x1b[0m"
+	out := renderPanel(5, "Conexiones", []string{coloredLine}, 0, false, 30, 5)
+	
+	expectedPlain := cursorStyle.Render("pawmatch")
+	if !strings.Contains(out, expectedPlain) {
+		t.Fatalf("expected output to contain stripped clean highlighted selection %q, got:\n%q", expectedPlain, out)
+	}
+}

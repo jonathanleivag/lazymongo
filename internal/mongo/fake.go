@@ -45,7 +45,7 @@ func (f *FakeClient) ListCollections(ctx context.Context, db string) ([]string, 
 	return names, nil
 }
 
-func (f *FakeClient) Find(ctx context.Context, db, coll string, filter bson.M, skip, limit int64) ([]bson.M, error) {
+func (f *FakeClient) Find(ctx context.Context, db, coll string, filter bson.M, sortDoc bson.M, skip, limit int64) ([]bson.M, error) {
 	docs := f.Databases[db][coll]
 	if int64(len(docs)) <= skip {
 		return []bson.M{}, nil

@@ -25,7 +25,7 @@ type Client interface {
 	ListDatabases(ctx context.Context) ([]string, error)
 	ListCollections(ctx context.Context, db string) ([]string, error)
 
-	Find(ctx context.Context, db, coll string, filter bson.M, skip, limit int64) ([]bson.M, error)
+	Find(ctx context.Context, db, coll string, filter bson.M, sortDoc bson.M, skip, limit int64) ([]bson.M, error)
 	CountDocuments(ctx context.Context, db, coll string, filter bson.M) (int64, error)
 	InsertOne(ctx context.Context, db, coll string, doc bson.M) (any, error)
 	UpdateField(ctx context.Context, db, coll string, id any, field string, value any) error
@@ -101,10 +101,13 @@ func (c *RealClient) ListCollections(ctx context.Context, db string) ([]string, 
 	return names, nil
 }
 
-func (c *RealClient) Find(ctx context.Context, db, coll string, filter bson.M, skip, limit int64) ([]bson.M, error) {
+func (c *RealClient) Find(ctx context.Context, db, coll string, filter bson.M, sortDoc bson.M, skip, limit int64) ([]bson.M, error) {
 	opts := options.Find().SetSkip(skip)
 	if limit > 0 {
 		opts.SetLimit(limit)
+	}
+	if len(sortDoc) > 0 {
+		opts.SetSort(sortDoc)
 	}
 	cursor, err := c.client.Database(db).Collection(coll).Find(ctx, filter, opts)
 	if err != nil {

@@ -42,6 +42,7 @@ type RootModel struct {
 	coll   string
 	page   int64
 	filter bson.M
+	sort   bson.M
 
 	connPicker connectionPickerModel
 	dbList     dbListModel
@@ -94,6 +95,15 @@ func NewRootModel(client mongo.Client, resolved *config.Connection) RootModel {
 func (m RootModel) currentFilter() bson.M {
 	if m.filter != nil {
 		return m.filter
+	}
+	return bson.M{}
+}
+
+// currentSort returns the currently active document sort, defaulting to
+// an empty sort when none has been set.
+func (m RootModel) currentSort() bson.M {
+	if m.sort != nil {
+		return m.sort
 	}
 	return bson.M{}
 }
@@ -180,11 +190,11 @@ type documentsLoadedMsg struct {
 	Err   error
 }
 
-func (m RootModel) loadDocuments(filter bson.M) tea.Cmd {
+func (m RootModel) loadDocuments(filter bson.M, sortDoc bson.M) tea.Cmd {
 	client, db, coll, page := m.client, m.db, m.coll, m.page
 	return func() tea.Msg {
 		ctx := context.Background()
-		docs, err := client.Find(ctx, db, coll, filter, page*pageSize, pageSize)
+		docs, err := client.Find(ctx, db, coll, filter, sortDoc, page*pageSize, pageSize)
 		if err != nil {
 			return documentsLoadedMsg{Err: err}
 		}
@@ -261,6 +271,8 @@ func (m RootModel) inTextEntry() bool {
 	case m.focus == panelIndexes && m.idxList.Filtering():
 		return true
 	case m.focus == panelDocuments && m.docList.filtering:
+		return true
+	case m.focus == panelDocuments && m.docList.sorting:
 		return true
 	case m.focus == panelDocuments && m.docList.FuzzyFiltering():
 		return true
@@ -461,7 +473,10 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.filter = nil
 		m.docList.filter = ""
 		m.docList.filterCursor = 0
-		return m, tea.Batch(m.loadIndexes(), m.loadDocuments(bson.M{}))
+		m.sort = nil
+		m.docList.sort = ""
+		m.docList.sortCursor = 0
+		return m, tea.Batch(m.loadIndexes(), m.loadDocuments(bson.M{}, bson.M{}))
 
 	case collCreateSubmittedMsg:
 		client, db, name := m.client, m.db, msg.Name
@@ -510,6 +525,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.coll = ""
 			m.page = 0
 			m.filter = nil
+			m.sort = nil
 			m.docList = newDocListModel(nil, 0, 0, pageSize)
 			m.idxList = newIdxListModel(nil)
 		}
@@ -531,6 +547,8 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// clear m.docList.filter themselves before triggering the reload.
 		newList.filter = m.docList.filter
 		newList.filterCursor = m.docList.filterCursor
+		newList.sort = m.docList.sort
+		newList.sortCursor = m.docList.sortCursor
 		m.docList = newList
 		return m, nil
 
@@ -608,7 +626,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.pendingDoc = nil
-		return m, m.loadDocuments(m.currentFilter())
+		return m, m.loadDocuments(m.currentFilter(), m.currentSort())
 
 	case indexWriteCompletedMsg:
 		if msg.Err != nil {
@@ -616,6 +634,10 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.loadIndexes()
+
+	case valueCopiedMsg:
+		m.logf("Copiado al portapapeles: %s", msg.Text)
+		return m, nil
 
 	case listBackMsg:
 		// with no view stack, "back" just closes whatever popup is open.
@@ -693,12 +715,15 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.coll = afterID
 			m.page = 0
 			m.filter = nil
+			m.sort = nil
 			// documentsLoadedMsg now carries docList.filter across a reload
 			// (see its handler) so a stale filter from the previous
 			// collection doesn't linger — clear it explicitly here too.
 			m.docList.filter = ""
 			m.docList.filterCursor = 0
-			return m, tea.Batch(m.loadIndexes(), m.loadDocuments(bson.M{}))
+			m.docList.sort = ""
+			m.docList.sortCursor = 0
+			return m, tea.Batch(m.loadIndexes(), m.loadDocuments(bson.M{}, bson.M{}))
 		}
 		return m, listCmd
 
@@ -722,7 +747,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch out := cmd().(type) {
 			case pageChangedMsg:
 				m.page = out.Page
-				return m, m.loadDocuments(m.currentFilter())
+				return m, m.loadDocuments(m.currentFilter(), m.currentSort())
 			case filterSubmittedMsg:
 				m.page = 0
 				var filter bson.M
@@ -732,12 +757,27 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.filter = filter
 				m.logf("Filtro aplicado: %s", out.Filter)
-				return m, m.loadDocuments(filter)
+				return m, m.loadDocuments(filter, m.currentSort())
 			case filterClearedMsg:
 				m.filter = nil
 				m.page = 0
 				m.logf("Filtro removido")
-				return m, m.loadDocuments(bson.M{})
+				return m, m.loadDocuments(bson.M{}, m.currentSort())
+			case sortSubmittedMsg:
+				m.page = 0
+				var sortDoc bson.M
+				if err := bson.UnmarshalExtJSON([]byte(out.Sort), false, &sortDoc); err != nil {
+					m.err = fmt.Errorf("orden inválido: %w", err)
+					return m, nil
+				}
+				m.sort = sortDoc
+				m.logf("Orden aplicado: %s", out.Sort)
+				return m, m.loadDocuments(m.currentFilter(), sortDoc)
+			case sortClearedMsg:
+				m.sort = nil
+				m.page = 0
+				m.logf("Orden removido")
+				return m, m.loadDocuments(m.currentFilter(), bson.M{})
 			case documentChosenMsg:
 				m.docDetail = newDocDetailModel(out.Doc)
 				m.popup = popupDocDetail
@@ -879,17 +919,30 @@ func (m RootModel) View() string {
 		docTitle += " — Buscar: " + m.docList.FuzzyQuery() + "_"
 	}
 	docLines, docCursor := docPanelLines(m.docList.docs, m.docList.cursor)
+	offset := 0
+	if m.docList.sorting {
+		suggestion := helpHintStyle.Render(m.docList.SortSuggestion())
+		line := "Orden:  " + m.docList.SortBeforeCursor() + "_" + suggestion + m.docList.SortAfterCursor()
+		docLines = append([]string{line}, docLines...)
+		offset++
+	} else if m.docList.sort != "" {
+		docLines = append([]string{"Orden activo:  " + m.docList.sort}, docLines...)
+		offset++
+	}
 	if m.docList.filtering {
 		suggestion := helpHintStyle.Render(m.docList.FilterSuggestion())
 		line := "Filtro: " + m.docList.FilterBeforeCursor() + "_" + suggestion + m.docList.FilterAfterCursor()
 		docLines = append([]string{line}, docLines...)
+		offset++
 	} else if m.docList.filter != "" {
 		docLines = append([]string{"Filtro activo: " + m.docList.filter}, docLines...)
+		offset++
 	}
+	docCursor += offset
 	mainHeight := panelHeight*5 - 5
 	main := renderPanel(0, docTitle, docLines, docCursor, m.focus == panelDocuments, mainWidth, mainHeight)
 
-	footer := "[1-5] panel  [j/k] mover  [Tab] documentos  [/] buscar/filtro  [Ctrl+f] buscar en docs  [Enter] ver  [e] editar  [d] borrar  [?] ayuda  [Ctrl+c] salir"
+	footer := "[1-5] panel  [j/k] mover  [Tab] documentos  [/] filtro  [s] ordenar  [Ctrl+f] buscar en docs  [Enter] ver  [e] editar  [d] borrar  [?] ayuda  [Ctrl+c] salir"
 
 	return composeScreen([]string{p1, p2, p3, p4, p5}, main, lastLogLines(m.log, 4), footer, mainWidth, 4)
 }

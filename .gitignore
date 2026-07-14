@@ -1,4 +1,32 @@
-/lazymongo
+# Compiled binaries
+lazymongo
+lazymongo_bin
+/bin/
+/dist/
+
+# Test binaries and coverage files
 *.test
+*.out
+*.prof
+coverage.txt
+
+# OS-specific files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Project-specific / Tooling
 .superpowers/

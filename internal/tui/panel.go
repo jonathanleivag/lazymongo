@@ -2,10 +2,17 @@ package tui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
+
+var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
+func stripANSI(s string) string {
+	return ansiRegex.ReplaceAllString(s, "")
+}
 
 var (
 	focusedBorderColor   = lipgloss.Color("6") // cyan
@@ -92,7 +99,7 @@ func visibleWindow(items []string, cursor int, maxLines int) []string {
 		line := items[i]
 		if i == cursor {
 			prefix = "> "
-			line = cursorStyle.Render(line)
+			line = cursorStyle.Render(stripANSI(line))
 		}
 		lines = append(lines, prefix+line)
 	}

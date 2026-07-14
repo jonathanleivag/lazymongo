@@ -14,6 +14,8 @@ type documentChosenMsg struct{ Doc bson.M }
 type pageChangedMsg struct{ Page int64 }
 type filterSubmittedMsg struct{ Filter string }
 type filterClearedMsg struct{}
+type sortSubmittedMsg struct{ Sort string }
+type sortClearedMsg struct{}
 type insertRequestedMsg struct{}
 type switchToIndexesMsg struct{}
 
@@ -26,6 +28,10 @@ type docListModel struct {
 	filtering    bool
 	filter       string
 	filterCursor int
+
+	sorting    bool
+	sort       string
+	sortCursor int
 
 	fuzzyFiltering bool
 	fuzzyQuery     string
@@ -41,6 +47,12 @@ func (m docListModel) FilterText() string { return m.filter }
 // FilterCursor returns the current rune-index cursor position within the
 // Mongo filter text.
 func (m docListModel) FilterCursor() int { return m.filterCursor }
+
+func (m docListModel) SortText() string { return m.sort }
+
+// SortCursor returns the current rune-index cursor position within the
+// Mongo sort text.
+func (m docListModel) SortCursor() int { return m.sortCursor }
 
 // FuzzyFiltering reports whether the local (non-Mongo) fuzzy-find over
 // already-loaded rows is active, so RootModel.inTextEntry can keep global
@@ -79,11 +91,37 @@ func (m docListModel) FilterSuggestion() string {
 	return filterFieldSuggestion(m.textBeforeCursor(), m.docs)
 }
 
+// SortSuggestion returns the missing suffix of the best-matching
+// top-level field name for whatever partial key is currently being typed
+// into the Mongo sort.
+func (m docListModel) SortSuggestion() string {
+	return filterFieldSuggestion(m.sortTextBeforeCursor(), m.docs)
+}
+
 // FilterBeforeCursor and FilterAfterCursor split the filter text at the
 // cursor for rendering: RootModel draws the cursor-blink marker at the real
 // cursor position instead of always at the end of the string.
 func (m docListModel) FilterBeforeCursor() string { return m.textBeforeCursor() }
 func (m docListModel) FilterAfterCursor() string  { return m.textAfterCursor() }
+
+func (m docListModel) sortTextBeforeCursor() string {
+	text := []rune(m.sort)
+	if m.sortCursor > len(text) {
+		return m.sort
+	}
+	return string(text[:m.sortCursor])
+}
+
+func (m docListModel) sortTextAfterCursor() string {
+	text := []rune(m.sort)
+	if m.sortCursor > len(text) {
+		return ""
+	}
+	return string(text[m.sortCursor:])
+}
+
+func (m docListModel) SortBeforeCursor() string { return m.sortTextBeforeCursor() }
+func (m docListModel) SortAfterCursor() string  { return m.sortTextAfterCursor() }
 
 func (m docListModel) Update(msg tea.Msg) (docListModel, tea.Cmd) {
 	keyMsg, ok := msg.(tea.KeyMsg)
@@ -125,6 +163,44 @@ func (m docListModel) Update(msg tea.Msg) (docListModel, tea.Cmd) {
 			m.backspaceFilter()
 		case tea.KeyRunes:
 			m.insertFilterRunes(keyMsg.Runes)
+		}
+		return m, nil
+	}
+
+	if m.sorting {
+		switch keyMsg.Type {
+		case tea.KeyEnter:
+			m.sorting = false
+			sortQuery := m.sort
+			m.sortCursor = 0
+			return m, func() tea.Msg { return sortSubmittedMsg{Sort: sortQuery} }
+		case tea.KeyEsc:
+			m.sorting = false
+			m.sort = ""
+			m.sortCursor = 0
+		case tea.KeyTab:
+			suggestion := []rune(filterFieldSuggestion(m.sortTextBeforeCursor(), m.docs))
+			if len(suggestion) > 0 {
+				text := []rune(m.sort)
+				newText := make([]rune, 0, len(text)+len(suggestion))
+				newText = append(newText, text[:m.sortCursor]...)
+				newText = append(newText, suggestion...)
+				newText = append(newText, text[m.sortCursor:]...)
+				m.sort = string(newText)
+				m.sortCursor += len(suggestion)
+			}
+		case tea.KeyLeft:
+			if m.sortCursor > 0 {
+				m.sortCursor--
+			}
+		case tea.KeyRight:
+			if m.sortCursor < len([]rune(m.sort)) {
+				m.sortCursor++
+			}
+		case tea.KeyBackspace:
+			m.backspaceSort()
+		case tea.KeyRunes:
+			m.insertSortRunes(keyMsg.Runes)
 		}
 		return m, nil
 	}
@@ -180,6 +256,10 @@ func (m docListModel) Update(msg tea.Msg) (docListModel, tea.Cmd) {
 		m.filtering = true
 		m.filter = ""
 		m.filterCursor = 0
+	case "s":
+		m.sorting = true
+		m.sort = ""
+		m.sortCursor = 0
 	case "ctrl+f":
 		m.fuzzyFiltering = true
 		m.fuzzyQuery = ""
@@ -203,6 +283,11 @@ func (m docListModel) Update(msg tea.Msg) (docListModel, tea.Cmd) {
 			m.filter = ""
 			m.filterCursor = 0
 			return m, func() tea.Msg { return filterClearedMsg{} }
+		}
+		if m.sort != "" {
+			m.sort = ""
+			m.sortCursor = 0
+			return m, func() tea.Msg { return sortClearedMsg{} }
 		}
 		return m, func() tea.Msg { return listBackMsg{} }
 	case "h":
@@ -290,6 +375,69 @@ func (m *docListModel) backspaceFilter() {
 	m.filterCursor--
 }
 
+func (m *docListModel) insertSortRunes(runes []rune) {
+	for _, r := range runes {
+		m.insertSortRune(r)
+	}
+}
+
+func (m *docListModel) insertSortRune(r rune) {
+	text := []rune(m.sort)
+
+	if (r == '}' || r == '"') && m.sortCursor < len(text) && text[m.sortCursor] == r {
+		m.sortCursor++
+		return
+	}
+
+	var closer rune
+	switch r {
+	case '{':
+		closer = '}'
+	case '"':
+		closer = '"'
+	}
+
+	newText := make([]rune, 0, len(text)+2)
+	newText = append(newText, text[:m.sortCursor]...)
+	newText = append(newText, r)
+	if closer != 0 {
+		newText = append(newText, closer)
+	}
+	newText = append(newText, text[m.sortCursor:]...)
+
+	m.sort = string(newText)
+	m.sortCursor++
+}
+
+func (m *docListModel) backspaceSort() {
+	if m.sortCursor == 0 {
+		return
+	}
+	text := []rune(m.sort)
+	before := text[m.sortCursor-1]
+
+	emptyPair := false
+	if m.sortCursor < len(text) {
+		after := text[m.sortCursor]
+		emptyPair = (before == '{' && after == '}') || (before == '"' && after == '"')
+	}
+
+	if emptyPair {
+		newText := make([]rune, 0, len(text)-2)
+		newText = append(newText, text[:m.sortCursor-1]...)
+		newText = append(newText, text[m.sortCursor+1:]...)
+		m.sort = string(newText)
+		m.sortCursor--
+		return
+	}
+
+	newText := make([]rune, 0, len(text)-1)
+	newText = append(newText, text[:m.sortCursor-1]...)
+	newText = append(newText, text[m.sortCursor:]...)
+	m.sort = string(newText)
+	m.sortCursor--
+}
+
 // exitFuzzyFiltering leaves local fuzzy-find mode and restores the full
 // loaded row set, with cursor moved to selectedID's position in that full
 // set. Used on Enter: without this, fuzzy-find stayed active after opening
@@ -338,6 +486,12 @@ func (m docListModel) View() string {
 		b.WriteString(helpHintStyle.Render("Filtro activo: "+m.filter) + "\n\n")
 	}
 
+	if m.sorting {
+		b.WriteString("Orden:  " + m.sort + "_\n\n")
+	} else if m.sort != "" {
+		b.WriteString(helpHintStyle.Render("Orden activo:  "+m.sort) + "\n\n")
+	}
+
 	if len(m.docs) == 0 {
 		b.WriteString("(sin documentos)\n")
 	}
@@ -348,7 +502,7 @@ func (m docListModel) View() string {
 		}
 		b.WriteString(prefix + fmt.Sprintf("%v\n", doc["_id"]))
 	}
-	b.WriteString("\n" + helpHintStyle.Render("[/] filtrar  [n/p] página  [Enter] ver  [i] insertar  [Tab] índices"))
+	b.WriteString("\n" + helpHintStyle.Render("[/] filtrar  [s] ordenar  [n/p] página  [Enter] ver  [i] insertar  [Tab] índices"))
 	return b.String()
 }
 

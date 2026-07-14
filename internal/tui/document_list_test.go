@@ -492,3 +492,66 @@ func TestDocListModel_HKeyStillSendsListBackMsgRegardlessOfFilter(t *testing.T) 
 		t.Fatalf("expected 'h' to keep sending listBackMsg even with an applied filter, got %T", cmd())
 	}
 }
+
+func TestDocListModel_SOOpensSortAndTypingUpdatesSortText(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	if !m.sorting {
+		t.Fatal("expected sorting mode to be active after 's'")
+	}
+	for _, r := range `{"_id":-1}` {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if m.SortText() != `{"_id":-1}` {
+		t.Fatalf("expected sort text to accumulate, got %q", m.SortText())
+	}
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected a command on enter")
+	}
+	submitted, ok := cmd().(sortSubmittedMsg)
+	if !ok || submitted.Sort != `{"_id":-1}` {
+		t.Fatalf("expected sortSubmittedMsg, got %#v", cmd())
+	}
+}
+
+func TestDocListModel_EscWithAppliedSortClearsItAndEmitsSortClearedMsg(t *testing.T) {
+	m := newDocListModel(sampleDocs(), 2, 0, 20)
+	m.sort = `{"_id":-1}`
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd == nil {
+		t.Fatal("expected a command on Esc with an applied sort")
+	}
+	if _, ok := cmd().(sortClearedMsg); !ok {
+		t.Fatalf("expected sortClearedMsg, got %T", cmd())
+	}
+}
+
+func TestDocListModel_SortAutocompleteTabCompletesSuggestions(t *testing.T) {
+	m := newDocListModel([]bson.M{{"email": "test@example.com"}}, 1, 0, 20)
+
+	// Enter sorting mode
+	m.sorting = true
+	// Type {"e
+	m.sort = `{"e`
+	m.sortCursor = len(m.sort)
+
+	// Suggestion should be "mail" because documents have key "email"
+	if m.SortSuggestion() != "mail" {
+		t.Fatalf("expected SortSuggestion to be %q, got %q", "mail", m.SortSuggestion())
+	}
+
+	// Press Tab
+	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if cmd != nil {
+		t.Fatal("expected no command on tab")
+	}
+
+	// It should auto-complete to {"email"
+	if m.sort != `{"email` {
+		t.Fatalf("expected sort text to be completed to %q, got %q", `{"email`, m.sort)
+	}
+}

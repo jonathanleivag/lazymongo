@@ -33,3 +33,37 @@ func TestDocDetailModel_UppercaseESendsEditFullMsg(t *testing.T) {
 		t.Fatalf("expected editFullRequestedMsg, got %T", cmd())
 	}
 }
+
+func TestDocDetailModel_CopySelectedFieldValue(t *testing.T) {
+	id := bson.NewObjectID()
+	m := newDocDetailModel(bson.M{"_id": id, "name": "Ana"})
+
+	// Cursor is on _id (alphabetically sorted: _id, name)
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	if cmd == nil {
+		t.Fatal("expected a command on 'y'")
+	}
+	copied, ok := cmd().(valueCopiedMsg)
+	if !ok {
+		t.Fatalf("expected valueCopiedMsg, got %T", cmd())
+	}
+	if copied.Text != id.Hex() {
+		t.Fatalf("expected copied text to be id hex %q, got %q", id.Hex(), copied.Text)
+	}
+
+	// Move cursor to "name"
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+
+	// Press 'c' to copy
+	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	if cmd == nil {
+		t.Fatal("expected a command on 'c'")
+	}
+	copied, ok = cmd().(valueCopiedMsg)
+	if !ok {
+		t.Fatalf("expected valueCopiedMsg, got %T", cmd())
+	}
+	if copied.Text != "Ana" {
+		t.Fatalf("expected copied text to be %q, got %q", "Ana", copied.Text)
+	}
+}

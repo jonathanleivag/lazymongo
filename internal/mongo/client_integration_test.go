@@ -63,7 +63,7 @@ func TestRealClient_DocumentCRUD(t *testing.T) {
 		t.Fatalf("InsertOne failed: %v", err)
 	}
 
-	docs, err := client.Find(ctx, db, coll, bson.M{"name": "gizmo"}, 0, 10)
+	docs, err := client.Find(ctx, db, coll, bson.M{"name": "gizmo"}, bson.M{}, 0, 10)
 	if err != nil {
 		t.Fatalf("Find failed: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestRealClient_DocumentCRUD(t *testing.T) {
 	if err := client.UpdateField(ctx, db, coll, id, "qty", 5); err != nil {
 		t.Fatalf("UpdateField failed: %v", err)
 	}
-	docs, _ = client.Find(ctx, db, coll, bson.M{"_id": id}, 0, 1)
+	docs, _ = client.Find(ctx, db, coll, bson.M{"_id": id}, bson.M{}, 0, 1)
 	if len(docs) != 1 || docs[0]["qty"] != int32(5) {
 		t.Fatalf("expected qty updated to 5, got %+v", docs)
 	}
@@ -90,7 +90,7 @@ func TestRealClient_DocumentCRUD(t *testing.T) {
 	if err := client.ReplaceOne(ctx, db, coll, id, bson.M{"name": "gizmo-v2"}); err != nil {
 		t.Fatalf("ReplaceOne failed: %v", err)
 	}
-	docs, _ = client.Find(ctx, db, coll, bson.M{"_id": id}, 0, 1)
+	docs, _ = client.Find(ctx, db, coll, bson.M{"_id": id}, bson.M{}, 0, 1)
 	if len(docs) != 1 || docs[0]["name"] != "gizmo-v2" {
 		t.Fatalf("expected replaced document, got %+v", docs)
 	}

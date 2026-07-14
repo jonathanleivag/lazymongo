@@ -35,7 +35,7 @@ var (
 	// change adds trailing plain text after an embedded styled segment on
 	// a cursor-highlighted line, the background will visibly cut off
 	// partway through. This is why, not a bug to "fix" here.
-	cursorStyle = lipgloss.NewStyle().Bold(true).Background(lipgloss.Color("6"))
+	cursorStyle = lipgloss.NewStyle().Bold(true).Background(lipgloss.Color("6")).Foreground(lipgloss.Color("0"))
 
 	helpHintStyle = lipgloss.NewStyle().Faint(true)
 )

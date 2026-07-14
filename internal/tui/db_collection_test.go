@@ -204,3 +204,76 @@ func TestCollListModel_TypingAEDDuringFilterDoesNotOpenAnyForm(t *testing.T) {
 		t.Fatalf("expected 'a','e','d' added to the filter query, got %q", m.list.FilterQuery())
 	}
 }
+
+func TestDbListModel_CursorNavigationAndEditing(t *testing.T) {
+	m := newDbListModel(nil)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+
+	// Type "shop"
+	for _, r := range "shop" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if m.createDBName != "shop" || m.cursor != 4 {
+		t.Fatalf("expected name to be 'shop' and cursor at 4, got %q and %d", m.createDBName, m.cursor)
+	}
+
+	// Move cursor left twice (now after "sh")
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	if m.cursor != 2 {
+		t.Fatalf("expected cursor at 2, got %d", m.cursor)
+	}
+
+	// Insert "o" -> "shoop"
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	if m.createDBName != "shoop" || m.cursor != 3 {
+		t.Fatalf("expected name to be 'shoop' and cursor at 3, got %q and %d", m.createDBName, m.cursor)
+	}
+
+	// Backspace -> "shop"
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if m.createDBName != "shop" || m.cursor != 2 {
+		t.Fatalf("expected name to be 'shop' and cursor at 2, got %q and %d", m.createDBName, m.cursor)
+	}
+
+	// Move cursor right twice (now at end)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	if m.cursor != 4 {
+		t.Fatalf("expected cursor at 4, got %d", m.cursor)
+	}
+
+	// Insert "!" -> "shop!"
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("!")})
+	if m.createDBName != "shop!" || m.cursor != 5 {
+		t.Fatalf("expected name to be 'shop!' and cursor at 5, got %q and %d", m.createDBName, m.cursor)
+	}
+}
+
+func TestCollListModel_CursorNavigationAndEditing(t *testing.T) {
+	m := newCollListModel([]string{"orders"})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	if m.editName != "orders" || m.cursor != 6 {
+		t.Fatalf("expected name to be 'orders' and cursor at 6, got %q and %d", m.editName, m.cursor)
+	}
+
+	// Move cursor left 3 times (now after "ord")
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	if m.cursor != 3 {
+		t.Fatalf("expected cursor at 3, got %d", m.cursor)
+	}
+
+	// Insert "e" -> "ordeers"
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	if m.editName != "ordeers" || m.cursor != 4 {
+		t.Fatalf("expected name to be 'ordeers' and cursor at 4, got %q and %d", m.editName, m.cursor)
+	}
+
+	// Backspace -> "orders"
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if m.editName != "orders" || m.cursor != 3 {
+		t.Fatalf("expected name to be 'orders' and cursor at 3, got %q and %d", m.editName, m.cursor)
+	}
+}

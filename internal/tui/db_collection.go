@@ -36,6 +36,7 @@ type dbListModel struct {
 	createDBName   string
 	createCollName string
 	createField    int // 0 = database name, 1 = initial collection name
+	cursor         int // rune index within the active creation field
 	confirmingDrop bool
 	confirm        confirmModel
 }
@@ -44,6 +45,78 @@ type dbListModel struct {
 // reusing newDatabaseListModel for the underlying list construction.
 func newDbListModel(names []string) dbListModel {
 	return dbListModel{list: newDatabaseListModel(names)}
+}
+
+func (m dbListModel) activeFieldText() string {
+	if m.createField == 0 {
+		return m.createDBName
+	}
+	return m.createCollName
+}
+
+func (m *dbListModel) setActiveFieldText(newText string) {
+	if m.createField == 0 {
+		m.createDBName = newText
+	} else {
+		m.createCollName = newText
+	}
+}
+
+func (m *dbListModel) insertAtCursor(text string) {
+	runes := []rune(m.activeFieldText())
+	inserted := []rune(text)
+	newRunes := make([]rune, 0, len(runes)+len(inserted))
+	newRunes = append(newRunes, runes[:m.cursor]...)
+	newRunes = append(newRunes, inserted...)
+	newRunes = append(newRunes, runes[m.cursor:]...)
+	m.setActiveFieldText(string(newRunes))
+	m.cursor += len(inserted)
+}
+
+func (m *dbListModel) deleteBeforeCursor() {
+	if m.cursor == 0 {
+		return
+	}
+	runes := []rune(m.activeFieldText())
+	newRunes := make([]rune, 0, len(runes)-1)
+	newRunes = append(newRunes, runes[:m.cursor-1]...)
+	newRunes = append(newRunes, runes[m.cursor:]...)
+	m.setActiveFieldText(string(newRunes))
+	m.cursor--
+}
+
+func (m dbListModel) textBeforeCursor(field int) string {
+	var text string
+	if field == 0 {
+		text = m.createDBName
+	} else {
+		text = m.createCollName
+	}
+	runes := []rune(text)
+	if m.createField != field {
+		return text
+	}
+	if m.cursor > len(runes) {
+		return text
+	}
+	return string(runes[:m.cursor])
+}
+
+func (m dbListModel) textAfterCursor(field int) string {
+	var text string
+	if field == 0 {
+		text = m.createDBName
+	} else {
+		text = m.createCollName
+	}
+	runes := []rune(text)
+	if m.createField != field {
+		return ""
+	}
+	if m.cursor > len(runes) {
+		return ""
+	}
+	return string(runes[m.cursor:])
 }
 
 func (m dbListModel) Update(msg tea.Msg) (dbListModel, tea.Cmd) {
@@ -79,28 +152,25 @@ func (m dbListModel) Update(msg tea.Msg) (dbListModel, tea.Cmd) {
 			return m, nil
 		case "tab", "shift+tab":
 			m.createField = (m.createField + 1) % 2
+			m.cursor = len([]rune(m.activeFieldText()))
 			return m, nil
 		case "enter":
 			dbName, collName := m.createDBName, m.createCollName
 			return m, func() tea.Msg { return dbCreateSubmittedMsg{DBName: dbName, CollName: collName} }
 		}
 		switch keyMsg.Type {
+		case tea.KeyLeft:
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		case tea.KeyRight:
+			if m.cursor < len([]rune(m.activeFieldText())) {
+				m.cursor++
+			}
 		case tea.KeyBackspace:
-			if m.createField == 0 {
-				if r := []rune(m.createDBName); len(r) > 0 {
-					m.createDBName = string(r[:len(r)-1])
-				}
-			} else {
-				if r := []rune(m.createCollName); len(r) > 0 {
-					m.createCollName = string(r[:len(r)-1])
-				}
-			}
+			m.deleteBeforeCursor()
 		case tea.KeyRunes:
-			if m.createField == 0 {
-				m.createDBName += string(keyMsg.Runes)
-			} else {
-				m.createCollName += string(keyMsg.Runes)
-			}
+			m.insertAtCursor(string(keyMsg.Runes))
 		}
 		return m, nil
 	}
@@ -112,6 +182,7 @@ func (m dbListModel) Update(msg tea.Msg) (dbListModel, tea.Cmd) {
 			m.createDBName = ""
 			m.createCollName = ""
 			m.createField = 0
+			m.cursor = 0
 			return m, nil
 		case "d", "x":
 			if len(m.list.Items) > 0 {
@@ -137,7 +208,7 @@ func (m dbListModel) View() string {
 		b.WriteString(titleStyle.Render("Nueva database") + "\n\n")
 		dbNameText := m.createDBName
 		if m.createField == 0 {
-			dbNameText += "_"
+			dbNameText = m.textBeforeCursor(0) + "_" + m.textAfterCursor(0)
 		}
 		b.WriteString("Database:   " + dbNameText)
 		if m.createField == 0 {
@@ -145,7 +216,7 @@ func (m dbListModel) View() string {
 		}
 		collNameText := m.createCollName
 		if m.createField == 1 {
-			collNameText += "_"
+			collNameText = m.textBeforeCursor(1) + "_" + m.textAfterCursor(1)
 		}
 		b.WriteString("\nCollection: " + collNameText)
 		if m.createField == 1 {
@@ -180,6 +251,7 @@ type collListModel struct {
 	editing          bool
 	editOriginalName string
 	editName         string
+	cursor           int // rune index within the active input field
 	confirmingDrop   bool
 	confirm          confirmModel
 }
@@ -189,6 +261,60 @@ type collListModel struct {
 // construction.
 func newCollListModel(names []string) collListModel {
 	return collListModel{list: newCollectionListModel(names)}
+}
+
+func (m collListModel) activeFieldText() string {
+	if m.creating {
+		return m.createName
+	}
+	return m.editName
+}
+
+func (m *collListModel) setActiveFieldText(newText string) {
+	if m.creating {
+		m.createName = newText
+	} else {
+		m.editName = newText
+	}
+}
+
+func (m *collListModel) insertAtCursor(text string) {
+	runes := []rune(m.activeFieldText())
+	inserted := []rune(text)
+	newRunes := make([]rune, 0, len(runes)+len(inserted))
+	newRunes = append(newRunes, runes[:m.cursor]...)
+	newRunes = append(newRunes, inserted...)
+	newRunes = append(newRunes, runes[m.cursor:]...)
+	m.setActiveFieldText(string(newRunes))
+	m.cursor += len(inserted)
+}
+
+func (m *collListModel) deleteBeforeCursor() {
+	if m.cursor == 0 {
+		return
+	}
+	runes := []rune(m.activeFieldText())
+	newRunes := make([]rune, 0, len(runes)-1)
+	newRunes = append(newRunes, runes[:m.cursor-1]...)
+	newRunes = append(newRunes, runes[m.cursor:]...)
+	m.setActiveFieldText(string(newRunes))
+	m.cursor--
+}
+
+func (m collListModel) textBeforeCursor() string {
+	runes := []rune(m.activeFieldText())
+	if m.cursor > len(runes) {
+		return m.activeFieldText()
+	}
+	return string(runes[:m.cursor])
+}
+
+func (m collListModel) textAfterCursor() string {
+	runes := []rune(m.activeFieldText())
+	if m.cursor > len(runes) {
+		return ""
+	}
+	return string(runes[m.cursor:])
 }
 
 func (m collListModel) Update(msg tea.Msg) (collListModel, tea.Cmd) {
@@ -227,12 +353,18 @@ func (m collListModel) Update(msg tea.Msg) (collListModel, tea.Cmd) {
 			return m, func() tea.Msg { return collCreateSubmittedMsg{Name: name} }
 		}
 		switch keyMsg.Type {
-		case tea.KeyBackspace:
-			if r := []rune(m.createName); len(r) > 0 {
-				m.createName = string(r[:len(r)-1])
+		case tea.KeyLeft:
+			if m.cursor > 0 {
+				m.cursor--
 			}
+		case tea.KeyRight:
+			if m.cursor < len([]rune(m.activeFieldText())) {
+				m.cursor++
+			}
+		case tea.KeyBackspace:
+			m.deleteBeforeCursor()
 		case tea.KeyRunes:
-			m.createName += string(keyMsg.Runes)
+			m.insertAtCursor(string(keyMsg.Runes))
 		}
 		return m, nil
 	}
@@ -251,12 +383,18 @@ func (m collListModel) Update(msg tea.Msg) (collListModel, tea.Cmd) {
 			return m, func() tea.Msg { return collRenameSubmittedMsg{OldName: oldName, NewName: newName} }
 		}
 		switch keyMsg.Type {
-		case tea.KeyBackspace:
-			if r := []rune(m.editName); len(r) > 0 {
-				m.editName = string(r[:len(r)-1])
+		case tea.KeyLeft:
+			if m.cursor > 0 {
+				m.cursor--
 			}
+		case tea.KeyRight:
+			if m.cursor < len([]rune(m.activeFieldText())) {
+				m.cursor++
+			}
+		case tea.KeyBackspace:
+			m.deleteBeforeCursor()
 		case tea.KeyRunes:
-			m.editName += string(keyMsg.Runes)
+			m.insertAtCursor(string(keyMsg.Runes))
 		}
 		return m, nil
 	}
@@ -266,6 +404,7 @@ func (m collListModel) Update(msg tea.Msg) (collListModel, tea.Cmd) {
 		case "a":
 			m.creating = true
 			m.createName = ""
+			m.cursor = 0
 			return m, nil
 		case "e":
 			if len(m.list.Items) > 0 {
@@ -273,6 +412,7 @@ func (m collListModel) Update(msg tea.Msg) (collListModel, tea.Cmd) {
 				m.editing = true
 				m.editOriginalName = name
 				m.editName = name
+				m.cursor = len([]rune(name))
 			}
 			return m, nil
 		case "d", "x":
@@ -297,14 +437,14 @@ func (m collListModel) View() string {
 	if m.creating {
 		var b strings.Builder
 		b.WriteString(titleStyle.Render("Nueva collection") + "\n\n")
-		b.WriteString("Nombre: " + m.createName + "_ <")
+		b.WriteString("Nombre: " + m.textBeforeCursor() + "_" + m.textAfterCursor() + " <")
 		b.WriteString("\n\n[Enter] crear  [Esc] cancelar")
 		return b.String()
 	}
 	if m.editing {
 		var b strings.Builder
 		b.WriteString(titleStyle.Render("Renombrar collection") + "\n\n")
-		b.WriteString("Nombre: " + m.editName + "_ <")
+		b.WriteString("Nombre: " + m.textBeforeCursor() + "_" + m.textAfterCursor() + " <")
 		b.WriteString("\n\n[Enter] guardar  [Esc] cancelar")
 		return b.String()
 	}
