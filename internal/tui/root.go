@@ -855,7 +855,7 @@ func (m RootModel) View() string {
 	case popupDelete:
 		return renderPopupOverlay(m.delete.View(), m.width, m.height)
 	case popupHelp:
-		return renderPopupOverlay(helpModel{}.View(), m.width, m.height)
+		return renderPopupOverlay(helpModel{focus: m.focus}.View(), m.width, m.height)
 	}
 
 	if m.focus == panelConnections && (m.connPicker.creating || m.connPicker.editing || m.connPicker.confirmingDelete) {
@@ -942,9 +942,28 @@ func (m RootModel) View() string {
 	mainHeight := panelHeight*5 - 5
 	main := renderPanel(0, docTitle, docLines, docCursor, m.focus == panelDocuments, mainWidth, mainHeight)
 
-	footer := "[1-5] panel  [j/k] mover  [Tab] documentos  [/] filtro  [s] ordenar  [Ctrl+f] buscar en docs  [Enter] ver  [e] editar  [d] borrar  [?] ayuda  [Ctrl+c] salir"
+	footer := m.footerText()
 
 	return composeScreen([]string{p1, p2, p3, p4, p5}, main, lastLogLines(m.log, 4), footer, mainWidth, 4)
+}
+
+func (m RootModel) footerText() string {
+	switch m.focus {
+	case panelStatus:
+		return "[1-5] panel  [Tab] documentos  [j/k] mover log  [?] ayuda  [Ctrl+c] salir"
+	case panelDatabases:
+		return "[1-5] panel  [Tab] documentos  [j/k] mover  [/] buscar  [a] crear DB  [d] borrar DB  [?] ayuda  [Ctrl+c] salir"
+	case panelCollections:
+		return "[1-5] panel  [Tab] documentos  [j/k] mover  [/] buscar  [a] crear  [e] renombrar  [d] borrar  [?] ayuda  [Ctrl+c] salir"
+	case panelIndexes:
+		return "[1-5] panel  [Tab] documentos  [j/k] mover  [/] buscar  [a] crear índice  [d] borrar índice  [?] ayuda  [Ctrl+c] salir"
+	case panelConnections:
+		return "[1-5] panel  [Tab] documentos  [j/k] mover  [Enter] conectar  [/] buscar  [a] crear  [e] editar  [d] borrar  [?] ayuda  [Ctrl+c] salir"
+	case panelDocuments:
+		return "[1-5] panel  [Tab] índices  [j/k] mover  [Enter] ver  [/] filtro  [s] ordenar  [Ctrl+f] buscar en docs  [i] insertar  [d] borrar  [?] ayuda  [Ctrl+c] salir"
+	default:
+		return "[1-5] panel  [j/k] mover  [Tab] documentos  [?] ayuda  [Ctrl+c] salir"
+	}
 }
 
 // highlightedItemID returns the ID of the item at cursor, or "" if items is

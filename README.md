@@ -5,37 +5,55 @@ Personal TUI for browsing/editing MongoDB, reusing `~/.config/mongo-connections.
 `docs/superpowers/specs/2026-07-11-lazymongo-design.md` for the design and
 `docs/superpowers/plans/2026-07-11-lazymongo.md` for how it was built.
 
-## Build
+## Build & Install
+
+To compile the application:
 
     go build -o lazymongo .
 
-## Run
+To install it globally to your `~/go/bin` directory:
 
-    ./lazymongo <connection-name>   # e.g. ./lazymongo qa
-    ./lazymongo                     # shows a picker of available connections
+    go install .
+
+### Aliases (ZSH)
+We have configured aliases in your `~/.zshrc` to run the application globally. You can launch it using any of the following:
+
+    lazymongo
+    lezymongo
+    lm
 
 ## Keybindings
 
 | Key | Action |
 |---|---|
-| `1`-`5` | jump to a panel (Status/Databases/Collections/Indexes/Conexiones) |
-| `Tab` | jump to Documents panel (or to Indexes, if already on Documents) |
-| `j`/`k`, arrows | move within the focused panel |
-| `Enter` | view document / connect (in Conexiones) / enter |
-| `Esc` | close the active popup / exit an active search (fuzzy or Mongo filter) |
-| `/` | buscar/filtrar: fuzzy-search por nombre en Databases/Collections/Indexes/Conexiones; filtro de query Mongo en Documentos |
-| `Ctrl+f` | fuzzy-search entre los documentos ya cargados en pantalla (no dispara una nueva query) |
-| `n`/`p` | next/previous page |
-| `i`, `a` | insert document / create connection, index, database, or collection |
-| `e` | edit field inline (document detail popup) / edit a connection's name, URI, and color / rename a collection |
-| `E` | edit full document in `$EDITOR` |
-| `d`, `x` | delete (always confirms) |
-| `?` | help |
-| `Ctrl+c` | quit |
+| `1`-`5` | Jump to a panel (Status/Databases/Collections/Indexes/Conexiones) |
+| `Tab` | Jump to Documents panel (or to Indexes, if already on Documents) / Autocomplete field names (in filter/sort entry) |
+| `j`/`k`, arrows | Move within the focused panel (or navigate cursor left/right within text inputs) |
+| `Enter` | View document / connect (in Conexiones) / submit form, filter, or sort |
+| `Esc` | Close active popup / exit active search / clear active filter or sort |
+| `/` | Search/Filter: fuzzy-search in side panels; Mongo query filter in Documents |
+| `s` | Sort: edit Mongo sort query in Documents (e.g. `{"createdAt": -1}`) |
+| `Ctrl+f` | Quick local fuzzy-search within currently loaded documents |
+| `n`/`p` | Next/previous page (in Documents) |
+| `i`, `a` | Insert document / create connection, index, database, or collection |
+| `e` | Edit field inline (document detail popup) / edit connection name/URI/color / rename collection |
+| `y`, `c` | Copy selected field value to clipboard (in document detail popup; copies ObjectID as clean hex) |
+| `E` | Edit full document in `$EDITOR` |
+| `d`, `x` | Delete item (always confirms) |
+| `?` | Context-sensitive help (shows hotkeys tailored to the active panel) |
+| `Ctrl+c` | Quit |
 
-Moving the cursor in the Databases/Collections panels immediately loads the
-next panel's contents (live preview) — no `Enter` needed. Connecting from the
-Conexiones panel still requires `Enter`, since it's a real network connect.
+*Note: The footer status line at the bottom of the screen updates dynamically to show only the hotkeys relevant to your active panel.*
+
+## AI Commit Integration (lazygit)
+
+We have configured custom commands inside your `lazygit` config to integrate with **Antigravity (`agy` CLI)**. The configuration is stored in the repository at [lazygit-config.yml](file:///Users/jonathanleivag/Development/jonathanleivag/lazymongo/lazygit-config.yml) (and applied in your local `~/Library/Application Support/lazygit/config.yml`).
+
+### Commands inside `lazygit`:
+- **Press `g` in Files Panel**: Generates a conventional commit message for your staged changes using Antigravity AI and commits them automatically.
+- **Press `x` in Files Panel**: Explains the changes made in the highlighted file.
+- **Press `x` in Commits Panel**: Explains what the highlighted commit does.
+- **Press `x` in Branches Panel**: Summarizes the changes in the selected local branch compared to `main`.
 
 ## Testing
 

@@ -1132,3 +1132,29 @@ func TestRootModel_SortingAppliesAndCarriesOver(t *testing.T) {
 		t.Fatalf("expected sort to be cleared when switching collections, got sort=%+v SortText=%q", root.sort, root.docList.SortText())
 	}
 }
+
+func TestRootModel_FooterTextChangesWithFocus(t *testing.T) {
+	fake := mongo.NewFakeClient()
+	conn := config.Connection{Name: "qa", URI: "mongodb://fake", Color: "verde"}
+	m := NewRootModel(fake, &conn)
+
+	tests := []struct {
+		focus       panelID
+		expectedSub string
+	}{
+		{panelStatus, "mover log"},
+		{panelDatabases, "crear DB"},
+		{panelCollections, "renombrar"},
+		{panelIndexes, "crear índice"},
+		{panelConnections, "conectar"},
+		{panelDocuments, "ordenar"},
+	}
+
+	for _, tt := range tests {
+		m.focus = tt.focus
+		footer := m.footerText()
+		if !strings.Contains(footer, tt.expectedSub) {
+			t.Errorf("expected footer for panel %v to contain %q, got %q", tt.focus, tt.expectedSub, footer)
+		}
+	}
+}
