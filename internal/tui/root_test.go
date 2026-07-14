@@ -799,6 +799,34 @@ func TestRootModel_ConnectionUpdatedMsgReloadsConnectionsList(t *testing.T) {
 	}
 }
 
+func TestRootModel_ConnectionUpdatedMsgMovesCursorToTheEditedConnection(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "mongo-connections.sh")
+	fixture := "declare -A MONGO_CONNECTIONS=(\n  [aaa]=\"mongodb://localhost:27017/aaa\"\n  [zzz]=\"mongodb://localhost:27017/zzz\"\n)\n\ndeclare -A MONGO_CONNECTION_COLORS=(\n  [aaa]=\"verde\"\n  [zzz]=\"verde\"\n)\n"
+	if err := os.WriteFile(tmp, []byte(fixture), 0600); err != nil {
+		t.Fatalf("writing fixture: %v", err)
+	}
+	restore := config.SetConnectionsFileForTesting(tmp)
+	defer restore()
+
+	m, _ := newTestRootModel()
+	root := *m
+
+	// connectionUpdatedMsg.Conn.Name is always the *new* name, regardless of
+	// whether it came from a plain update or a rename — this message names
+	// "zzz", the connection that sorts alphabetically last in the fixture,
+	// to prove the handler positions the cursor by name rather than
+	// leaving it at whatever index newConnectionPickerModel defaults to.
+	model, _ := root.Update(connectionUpdatedMsg{Conn: config.Connection{Name: "zzz", URI: "mongodb://localhost:27017/zzz", Color: "verde"}})
+	root = model.(RootModel)
+
+	if got := root.connPicker.list.Cursor; got != 1 {
+		t.Fatalf("expected cursor at index 1 ('zzz', alphabetically last), got %d (items: %+v)", got, root.connPicker.list.Items)
+	}
+	if got := root.connPicker.list.Items[root.connPicker.list.Cursor].ID; got != "zzz" {
+		t.Fatalf("expected cursor to point at 'zzz', got %q", got)
+	}
+}
+
 func TestRootModel_ConnectionDeletedMsgReloadsConnectionsList(t *testing.T) {
 	tmp := filepath.Join(t.TempDir(), "mongo-connections.sh")
 	fixture := "declare -A MONGO_CONNECTIONS=(\n  [staging]=\"mongodb://localhost:27017/staging\"\n)\n"

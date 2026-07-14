@@ -306,6 +306,12 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.connPicker = newConnectionPickerModel(conns)
+		for i, item := range m.connPicker.list.Items {
+			if item.ID == msg.Conn.Name {
+				m.connPicker.list.Cursor = i
+				break
+			}
+		}
 		return m, nil
 
 	case connectionUpdateErrMsg:
