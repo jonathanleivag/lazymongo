@@ -359,3 +359,137 @@ func TestUpdateConnection_NeutralizesShellMetacharactersInURI(t *testing.T) {
 		t.Fatalf("expected URI preserved literally as %q, got %q", malicious, conn.URI)
 	}
 }
+
+func TestRenameConnection_MovesEntriesToNewKeyInBothArrays(t *testing.T) {
+	withTempConnectionsFile(t, "testdata/basic.sh")
+
+	err := RenameConnection("qa", Connection{Name: "staging", URI: "mongodb://localhost:27017/test", Color: "verde"})
+	if err != nil {
+		t.Fatalf("RenameConnection failed: %v", err)
+	}
+
+	if _, err := ResolveConnection("qa"); err == nil {
+		t.Fatal("expected 'qa' to no longer resolve after rename")
+	}
+
+	conn, err := ResolveConnection("staging")
+	if err != nil {
+		t.Fatalf("resolving renamed connection: %v", err)
+	}
+	want := Connection{Name: "staging", URI: "mongodb://localhost:27017/test", Color: "verde"}
+	if conn != want {
+		t.Fatalf("got %+v, want %+v", conn, want)
+	}
+
+	other, err := ResolveConnection("prod")
+	if err != nil {
+		t.Fatalf("resolving untouched connection: %v", err)
+	}
+	if other.URI != "mongodb://localhost:27017/prod" || other.Color != "rojo" {
+		t.Fatalf("untouched connection changed unexpectedly: %+v", other)
+	}
+}
+
+func TestRenameConnection_RejectsCollisionWithDifferentExistingConnection(t *testing.T) {
+	path := withTempConnectionsFile(t, "testdata/basic.sh")
+
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading file before RenameConnection: %v", err)
+	}
+
+	err = RenameConnection("qa", Connection{Name: "prod", URI: "mongodb://x", Color: "verde"})
+	if err == nil {
+		t.Fatal("expected an error renaming 'qa' to the already-existing 'prod', got nil")
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading file after RenameConnection: %v", err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("file was modified despite rejected rename")
+	}
+
+	if _, err := ResolveConnection("qa"); err != nil {
+		t.Fatalf("'qa' broke after rejected rename: %v", err)
+	}
+	if _, err := ResolveConnection("prod"); err != nil {
+		t.Fatalf("'prod' broke after rejected rename: %v", err)
+	}
+}
+
+func TestRenameConnection_SameNameBehavesLikePlainUpdate(t *testing.T) {
+	withTempConnectionsFile(t, "testdata/basic.sh")
+
+	err := RenameConnection("qa", Connection{Name: "qa", URI: "mongodb://newhost:27017/qa2", Color: "rojo"})
+	if err != nil {
+		t.Fatalf("RenameConnection failed: %v", err)
+	}
+
+	conn, err := ResolveConnection("qa")
+	if err != nil {
+		t.Fatalf("resolving connection: %v", err)
+	}
+	want := Connection{Name: "qa", URI: "mongodb://newhost:27017/qa2", Color: "rojo"}
+	if conn != want {
+		t.Fatalf("got %+v, want %+v", conn, want)
+	}
+}
+
+func TestRenameConnection_RejectsUnsafeNewName(t *testing.T) {
+	path := withTempConnectionsFile(t, "testdata/basic.sh")
+
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading file before RenameConnection: %v", err)
+	}
+
+	malicious := `x]="y"; rm -rf ~ #`
+	err = RenameConnection("qa", Connection{Name: malicious, URI: "mongodb://x", Color: "verde"})
+	if err == nil {
+		t.Fatal("expected an error for an unsafe new connection name, got nil")
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading file after RenameConnection: %v", err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("file was modified despite rejected name")
+	}
+}
+
+func TestRenameConnection_ResultIsValidZsh(t *testing.T) {
+	path := withTempConnectionsFile(t, "testdata/basic.sh")
+
+	if err := RenameConnection("qa", Connection{Name: "staging", URI: "mongodb://x", Color: "amarillo"}); err != nil {
+		t.Fatalf("RenameConnection failed: %v", err)
+	}
+	if err := validateZshSyntax(path); err != nil {
+		t.Fatalf("resulting file is not valid zsh: %v", err)
+	}
+}
+
+func TestRenameConnection_NeutralizesShellMetacharactersInURI(t *testing.T) {
+	withTempConnectionsFile(t, "testdata/basic.sh")
+
+	marker := filepath.Join(t.TempDir(), "pwned")
+	malicious := fmt.Sprintf("mongodb://x$(touch %s)y", marker)
+
+	if err := RenameConnection("qa", Connection{Name: "staging", URI: malicious, Color: "verde"}); err != nil {
+		t.Fatalf("RenameConnection failed: %v", err)
+	}
+
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("command substitution in URI was executed — shell injection not neutralized")
+	}
+
+	conn, err := ResolveConnection("staging")
+	if err != nil {
+		t.Fatalf("resolving connection: %v", err)
+	}
+	if conn.URI != malicious {
+		t.Fatalf("expected URI preserved literally as %q, got %q", malicious, conn.URI)
+	}
+}

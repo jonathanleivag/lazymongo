@@ -285,3 +285,91 @@ func removeFromArray(content, arrayName, name string) (string, error) {
 	}
 	return content, nil
 }
+
+// arrayHasKey reports whether the named zsh associative array already
+// contains an entry for name. Used by RenameConnection to detect a
+// collision before writing anything — renaming into an existing different
+// connection's name would otherwise silently overwrite it.
+func arrayHasKey(content, arrayName, name string) bool {
+	header := fmt.Sprintf("declare -A %s=(", arrayName)
+	if !strings.Contains(content, header) {
+		return false
+	}
+
+	keyPrefix := fmt.Sprintf("[%s]=", name)
+	lines := strings.Split(content, "\n")
+	headerLineIdx := -1
+	for i, line := range lines {
+		if strings.TrimSpace(line) == header {
+			headerLineIdx = i
+			break
+		}
+	}
+	if headerLineIdx == -1 {
+		return false
+	}
+
+	for i := headerLineIdx + 1; i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == ")" {
+			return false
+		}
+		if strings.HasPrefix(trimmed, keyPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// RenameConnection moves an existing connection from oldName to conn.Name,
+// updating both MONGO_CONNECTIONS and MONGO_CONNECTION_COLORS. If conn.Name
+// differs from oldName and already names a different existing connection,
+// the rename is rejected (no file is written) to avoid silently
+// overwriting that connection. Mirrors AddConnection/UpdateConnection's
+// safety model: validates the result is still valid zsh before keeping the
+// change, restoring the original file on any failure.
+func RenameConnection(oldName string, conn Connection) error {
+	if !isValidConnectionName(oldName) {
+		return fmt.Errorf("nombre de conexión inválido %q: solo se permiten letras, números, guiones y guiones bajos", oldName)
+	}
+	if !isValidConnectionName(conn.Name) {
+		return fmt.Errorf("nombre de conexión inválido %q: solo se permiten letras, números, guiones y guiones bajos", conn.Name)
+	}
+
+	original, err := os.ReadFile(connectionsFile)
+	if err != nil {
+		return fmt.Errorf("leyendo %s: %w", connectionsFile, err)
+	}
+	content := string(original)
+
+	if conn.Name != oldName && arrayHasKey(content, "MONGO_CONNECTIONS", conn.Name) {
+		return fmt.Errorf("ya existe una conexión llamada %q", conn.Name)
+	}
+
+	content, err = removeFromArray(content, "MONGO_CONNECTIONS", oldName)
+	if err != nil {
+		return err
+	}
+	content, err = removeFromArray(content, "MONGO_CONNECTION_COLORS", oldName)
+	if err != nil {
+		return err
+	}
+	content, err = insertIntoArray(content, "MONGO_CONNECTIONS", fmt.Sprintf("  [%s]=%s", conn.Name, zshSingleQuote(conn.URI)))
+	if err != nil {
+		return err
+	}
+	content, err = insertIntoArray(content, "MONGO_CONNECTION_COLORS", fmt.Sprintf("  [%s]=%s", conn.Name, zshSingleQuote(conn.Color)))
+	if err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(connectionsFile, []byte(content), 0600); err != nil {
+		return fmt.Errorf("escribiendo %s: %w", connectionsFile, err)
+	}
+
+	if err := validateZshSyntax(connectionsFile); err != nil {
+		_ = os.WriteFile(connectionsFile, original, 0600)
+		return fmt.Errorf("el archivo resultante no era zsh válido, se revirtió: %w", err)
+	}
+	return nil
+}
