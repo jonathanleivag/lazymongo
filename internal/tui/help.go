@@ -80,8 +80,8 @@ func (m helpModel) View() string {
 
 	b.WriteString(titleStyle.Render("lazymongo — Ayuda: "+panelName) + "\n\n")
 	b.WriteString("Atajos Globales:\n")
-	b.WriteString("  1-5            saltar a un panel (Status/Databases/Collections/Indexes/Conexiones)\n")
-	b.WriteString("  Tab            ir al panel de Documentos (o de Índices si ya estás en Documentos)\n")
+	b.WriteString("  0-5            saltar a un panel (0: Documentos, 1: Status, 2: DBs, 3: Colls, 4: Índices, 5: Conexiones)\n")
+	b.WriteString("  Tab            ir al panel de Índices (solo si estás en Documentos)\n")
 	b.WriteString("  Esc            cerrar popups activos / cancelar modo de búsqueda o entrada de texto\n")
 	b.WriteString("  ?              abrir/cerrar esta ayuda\n")
 	b.WriteString("  Ctrl+c         salir de la aplicación\n\n")

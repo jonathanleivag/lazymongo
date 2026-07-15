@@ -258,6 +258,7 @@ func TestRootModel_NumberKeysSwitchFocus(t *testing.T) {
 		key   string
 		panel panelID
 	}{
+		{"0", panelDocuments},
 		{"1", panelStatus},
 		{"2", panelDatabases},
 		{"3", panelCollections},
@@ -265,6 +266,11 @@ func TestRootModel_NumberKeysSwitchFocus(t *testing.T) {
 		{"5", panelConnections},
 	}
 	for _, c := range cases {
+		// Reset focus to test each key independently
+		root.focus = panelStatus
+		if c.panel == panelStatus {
+			root.focus = panelDatabases
+		}
 		model, _ := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(c.key)})
 		root = model.(RootModel)
 		if root.focus != c.panel {
@@ -273,43 +279,30 @@ func TestRootModel_NumberKeysSwitchFocus(t *testing.T) {
 	}
 }
 
-func TestRootModel_TabSwitchesFocusToDocuments(t *testing.T) {
-	m, _ := newTestRootModel()
-	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	root := model.(RootModel)
-	if root.focus != panelDocuments {
-		t.Fatalf("expected focus=panelDocuments after Tab, got %v", root.focus)
-	}
-}
-
-// TestRootModel_TabFromDatabasesMovesToDocuments is a regression check that
-// Tab's primary behavior (jump to Documents from any other panel) still
-// works after the fix that lets Tab fall through to per-panel routing when
-// focus is already panelDocuments.
-func TestRootModel_TabFromDatabasesMovesToDocuments(t *testing.T) {
+// TestRootModel_ZeroFromDatabasesMovesToDocuments is a regression check that
+// Zero's primary behavior (jump to Documents from any other panel) works.
+func TestRootModel_ZeroFromDatabasesMovesToDocuments(t *testing.T) {
 	root, _ := rootModelAtDatabasesFocus(t)
 	if root.focus != panelDatabases {
 		t.Fatalf("precondition failed: expected focus=panelDatabases, got %v", root.focus)
 	}
-	model, _ := root.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model, _ := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}})
 	root = model.(RootModel)
 	if root.focus != panelDocuments {
-		t.Fatalf("expected focus=panelDocuments after Tab from panelDatabases, got %v", root.focus)
+		t.Fatalf("expected focus=panelDocuments after pressing '0' from panelDatabases, got %v", root.focus)
 	}
 }
 
-// TestRootModel_TabWhileAlreadyOnDocuments_FallsThroughToSwitchToIndexes
-// proves the old v1 behavior is restored: when focus is ALREADY
-// panelDocuments, Tab must NOT be swallowed by the global handler — it needs
-// to reach docListModel.Update, which (per its own internal Tab handling)
-// emits switchToIndexesMsg, handled by the panelDocuments branch by setting
-// focus=panelIndexes and loading indexes.
-func TestRootModel_TabWhileAlreadyOnDocuments_FallsThroughToSwitchToIndexes(t *testing.T) {
+// TestRootModel_ZeroWhileAlreadyOnDocuments_FallsThroughToSwitchToIndexes
+// proves that when focus is ALREADY panelDocuments, Tab must NOT be swallowed by
+// the global handler — it needs to reach docListModel.Update, which emits
+// switchToIndexesMsg, handled by setting focus=panelIndexes and loading indexes.
+func TestRootModel_ZeroWhileAlreadyOnDocuments_FallsThroughToSwitchToIndexes(t *testing.T) {
 	m, _ := newTestRootModel()
-	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}})
 	root := model.(RootModel)
 	if root.focus != panelDocuments {
-		t.Fatalf("precondition failed: expected focus=panelDocuments after first Tab, got %v", root.focus)
+		t.Fatalf("precondition failed: expected focus=panelDocuments after first '0', got %v", root.focus)
 	}
 
 	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyTab})
@@ -564,10 +557,10 @@ func TestRootModel_DocumentEnterOpensDocDetailPopup(t *testing.T) {
 
 	// Focus Documents and press Enter on the only document: this must open
 	// the doc-detail popup.
-	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}})
 	root = model.(RootModel)
 	if root.focus != panelDocuments {
-		t.Fatalf("expected focus=panelDocuments after Tab, got %v", root.focus)
+		t.Fatalf("expected focus=panelDocuments after pressing '0', got %v", root.focus)
 	}
 	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	root = model.(RootModel)
@@ -748,7 +741,7 @@ func TestRootModel_DocumentsPanelExpandsOnlyHighlightedDocument(t *testing.T) {
 	root.coll = "orders"
 	model, _ = root.Update(documentsLoadedMsg{Docs: fake.Databases["shop"]["orders"], Total: 2})
 	root = model.(RootModel)
-	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}})
 	root = model.(RootModel)
 	if root.focus != panelDocuments {
 		t.Fatalf("precondition failed: expected focus=panelDocuments, got %v", root.focus)
@@ -777,7 +770,7 @@ func TestRootModel_DocumentsFilterShowsInlineSuggestion(t *testing.T) {
 	root.coll = "orders"
 	model, _ = root.Update(documentsLoadedMsg{Docs: fake.Databases["shop"]["orders"], Total: 1})
 	root = model.(RootModel)
-	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}})
 	root = model.(RootModel)
 
 	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
@@ -812,7 +805,7 @@ func TestRootModel_EscWithAppliedFilterClearsAndReloadsDocuments(t *testing.T) {
 	model, _ = root.Update(documentsLoadedMsg{Docs: []bson.M{{"_id": "o1", "name": "Ana"}}, Total: 1})
 	root = model.(RootModel)
 	root.docList.filter = `{"name":"Ana"}`
-	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}})
 	root = model.(RootModel)
 	if root.focus != panelDocuments {
 		t.Fatalf("precondition failed: expected focus=panelDocuments, got %v", root.focus)
@@ -847,7 +840,7 @@ func TestRootModel_DocumentsFilterCursorMarkerAtRealPosition(t *testing.T) {
 	root.coll = "orders"
 	model, _ = root.Update(documentsLoadedMsg{Docs: fake.Databases["shop"]["orders"], Total: 1})
 	root = model.(RootModel)
-	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}})
 	root = model.(RootModel)
 
 	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
@@ -884,7 +877,7 @@ func TestRootModel_AppliedFilterSurvivesTheReloadItTriggers(t *testing.T) {
 	root.coll = "orders"
 	model, _ = root.Update(documentsLoadedMsg{Docs: fake.Databases["shop"]["orders"], Total: 2})
 	root = model.(RootModel)
-	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}})
 	root = model.(RootModel)
 
 	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
@@ -940,7 +933,7 @@ func TestRootModel_FilterTextSurvivesPagination(t *testing.T) {
 	root.filter = bson.M{"name": "Ana"}
 	root.docList = newDocListModel(docs[:20], 25, 0, 20)
 	root.docList.filter = `{"name":"Ana"}`
-	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model, _ = root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}})
 	root = model.(RootModel)
 
 	model, cmd := root.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})

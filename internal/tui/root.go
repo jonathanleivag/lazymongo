@@ -322,7 +322,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "5":
 				m.focus = panelConnections
 				return m, nil
-			case "tab":
+			case "0":
 				if m.focus != panelDocuments {
 					m.focus = panelDocuments
 					return m, nil
@@ -950,19 +950,19 @@ func (m RootModel) View() string {
 func (m RootModel) footerText() string {
 	switch m.focus {
 	case panelStatus:
-		return "[1-5] panel  [Tab] documentos  [j/k] mover log  [?] ayuda  [Ctrl+c] salir"
+		return "[0-5] panel  [j/k] mover log  [?] ayuda  [Ctrl+c] salir"
 	case panelDatabases:
-		return "[1-5] panel  [Tab] documentos  [j/k] mover  [/] buscar  [a] crear DB  [d] borrar DB  [?] ayuda  [Ctrl+c] salir"
+		return "[0-5] panel  [j/k] mover  [/] buscar  [a] crear DB  [d] borrar DB  [?] ayuda  [Ctrl+c] salir"
 	case panelCollections:
-		return "[1-5] panel  [Tab] documentos  [j/k] mover  [/] buscar  [a] crear  [e] renombrar  [d] borrar  [?] ayuda  [Ctrl+c] salir"
+		return "[0-5] panel  [j/k] mover  [/] buscar  [a] crear  [e] renombrar  [d] borrar  [?] ayuda  [Ctrl+c] salir"
 	case panelIndexes:
-		return "[1-5] panel  [Tab] documentos  [j/k] mover  [/] buscar  [a] crear índice  [d] borrar índice  [?] ayuda  [Ctrl+c] salir"
+		return "[0-5] panel  [j/k] mover  [/] buscar  [a] crear índice  [d] borrar índice  [?] ayuda  [Ctrl+c] salir"
 	case panelConnections:
-		return "[1-5] panel  [Tab] documentos  [j/k] mover  [Enter] conectar  [/] buscar  [a] crear  [e] editar  [d] borrar  [?] ayuda  [Ctrl+c] salir"
+		return "[0-5] panel  [j/k] mover  [Enter] conectar  [/] buscar  [a] crear  [e] editar  [d] borrar  [?] ayuda  [Ctrl+c] salir"
 	case panelDocuments:
 		return "[1-5] panel  [Tab] índices  [j/k] mover  [Enter] ver  [/] filtro  [s] ordenar  [Ctrl+f] buscar en docs  [i] insertar  [d] borrar  [?] ayuda  [Ctrl+c] salir"
 	default:
-		return "[1-5] panel  [j/k] mover  [Tab] documentos  [?] ayuda  [Ctrl+c] salir"
+		return "[0-5] panel  [j/k] mover  [?] ayuda  [Ctrl+c] salir"
 	}
 }
 
