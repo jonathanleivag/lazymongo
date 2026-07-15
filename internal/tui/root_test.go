@@ -1151,3 +1151,12 @@ func TestRootModel_FooterTextChangesWithFocus(t *testing.T) {
 		}
 	}
 }
+
+func TestRootModel_NoArgLaunch_RendersConnectionPickerAsModal(t *testing.T) {
+	fake := mongo.NewFakeClient()
+	m := NewRootModel(fake, nil)
+	view := m.View()
+	if !strings.Contains(view, "Seleccionar Conexión") {
+		t.Fatalf("expected startup connection picker modal to be rendered, got:\n%s", view)
+	}
+}

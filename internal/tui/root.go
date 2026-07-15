@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jonathanleivag/lazymongo/internal/config"
@@ -843,6 +844,21 @@ func (m RootModel) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m RootModel) View() string {
 	if m.err != nil {
 		return renderPopupOverlay(fmt.Sprintf("Error: %v\n\n[cualquier tecla] continuar", m.err), m.width, m.height)
+	}
+
+	if m.conn.Name == "" {
+		var pickerContent string
+		if m.connPicker.creating || m.connPicker.editing || m.connPicker.confirmingDelete {
+			pickerContent = m.connPicker.View()
+		} else {
+			var b strings.Builder
+			b.WriteString(titleStyle.Render("lazymongo — Seleccionar Conexión") + "\n\n")
+			b.WriteString("Usa [j/k] para moverte, [Enter] para conectar.\n")
+			b.WriteString("[a] crear nueva, [e] editar, [d] borrar.\n\n")
+			b.WriteString(m.connPicker.View())
+			pickerContent = b.String()
+		}
+		return renderPopupOverlay(pickerContent, m.width, m.height)
 	}
 
 	switch m.popup {
