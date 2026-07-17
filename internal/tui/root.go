@@ -186,6 +186,8 @@ func (m RootModel) loadCollections(selectName string) tea.Cmd {
 }
 
 type documentsLoadedMsg struct {
+	DB    string
+	Coll  string
 	Docs  []bson.M
 	Total int64
 	Err   error
@@ -197,13 +199,13 @@ func (m RootModel) loadDocuments(filter bson.M, sortDoc bson.M) tea.Cmd {
 		ctx := context.Background()
 		docs, err := client.Find(ctx, db, coll, filter, sortDoc, page*pageSize, pageSize)
 		if err != nil {
-			return documentsLoadedMsg{Err: err}
+			return documentsLoadedMsg{DB: db, Coll: coll, Err: err}
 		}
 		total, err := client.CountDocuments(ctx, db, coll, filter)
 		if err != nil {
-			return documentsLoadedMsg{Err: err}
+			return documentsLoadedMsg{DB: db, Coll: coll, Err: err}
 		}
-		return documentsLoadedMsg{Docs: docs, Total: total}
+		return documentsLoadedMsg{DB: db, Coll: coll, Docs: docs, Total: total}
 	}
 }
 
@@ -561,6 +563,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.loadCollections("")
 
 	case documentsLoadedMsg:
+		m.logf("Docs cargados para %s.%s: %d docs (total: %d)", msg.DB, msg.Coll, len(msg.Docs), msg.Total)
 		if msg.Err != nil {
 			m.err = msg.Err
 			return m, nil
@@ -595,13 +598,22 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case deleteRequestedMsg:
-		id := m.docDetail.doc["_id"]
-		m.delete = newDeleteFlowModel(id)
-		m.popup = popupDelete
+		var id any
+		if m.focus == panelDocuments && m.popup == popupNone {
+			if len(m.docList.docs) > 0 && m.docList.cursor >= 0 && m.docList.cursor < len(m.docList.docs) {
+				id = m.docList.docs[m.docList.cursor]["_id"]
+			}
+		} else {
+			id = m.docDetail.doc["_id"]
+		}
+		if id != nil {
+			m.delete = newDeleteFlowModel(id)
+			m.popup = popupDelete
+		}
 		return m, nil
 
 	case deleteConfirmedMsg:
-		id := m.docDetail.doc["_id"]
+		id := m.delete.docID
 		client, db, coll := m.client, m.db, m.coll
 		m.popup = popupNone
 		m.logf("Borrando documento %v", id)

@@ -274,6 +274,10 @@ func (m docListModel) Update(msg tea.Msg) (docListModel, tea.Cmd) {
 			page := m.page - 1
 			return m, func() tea.Msg { return pageChangedMsg{Page: page} }
 		}
+	case "d", "x":
+		if len(m.docs) > 0 {
+			return m, func() tea.Msg { return deleteRequestedMsg{} }
+		}
 	case "i", "a":
 		return m, func() tea.Msg { return insertRequestedMsg{} }
 	case "tab":
