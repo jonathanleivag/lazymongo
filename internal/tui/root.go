@@ -996,15 +996,15 @@ func (m RootModel) footerText() string {
 	case panelStatus:
 		return "[0-5] panel  [j/k] mover log  [?] ayuda  [Ctrl+c] salir"
 	case panelDatabases:
-		return "[0-5] panel  [j/k] mover  [/] buscar  [a] crear DB  [d] borrar DB  [?] ayuda  [Ctrl+c] salir"
+		return "[0-5] panel  [j/k] mover  [/] buscar  [a] crear DB  [d] borrar DB  [r] refrescar  [?] ayuda  [Ctrl+c] salir"
 	case panelCollections:
-		return "[0-5] panel  [j/k] mover  [/] buscar  [a] crear  [e] renombrar  [d] borrar  [?] ayuda  [Ctrl+c] salir"
+		return "[0-5] panel  [j/k] mover  [/] buscar  [a] crear  [e] renombrar  [d] borrar  [r] refrescar  [?] ayuda  [Ctrl+c] salir"
 	case panelIndexes:
-		return "[0-5] panel  [j/k] mover  [/] buscar  [a] crear índice  [d] borrar índice  [?] ayuda  [Ctrl+c] salir"
+		return "[0-5] panel  [j/k] mover  [/] buscar  [a] crear índice  [d] borrar índice  [r] refrescar  [?] ayuda  [Ctrl+c] salir"
 	case panelConnections:
-		return "[0-5] panel  [j/k] mover  [Enter] conectar  [/] buscar  [a] crear  [e] editar  [d] borrar  [?] ayuda  [Ctrl+c] salir"
+		return "[0-5] panel  [j/k] mover  [Enter] conectar  [/] buscar  [a] crear  [e] editar  [d] borrar  [r] refrescar  [?] ayuda  [Ctrl+c] salir"
 	case panelDocuments:
-		return "[1-5] panel  [Tab] índices  [j/k] mover  [Enter] ver  [/] filtro  [s] ordenar  [Ctrl+f] buscar en docs  [i] insertar  [d] borrar  [?] ayuda  [Ctrl+c] salir"
+		return "[1-5] panel  [Tab] índices  [j/k] mover  [Enter] ver  [/] filtro  [s] ordenar  [Ctrl+f] buscar en docs  [i] insertar  [d] borrar  [r] refrescar  [?] ayuda  [Ctrl+c] salir"
 	default:
 		return "[0-5] panel  [j/k] mover  [?] ayuda  [Ctrl+c] salir"
 	}
