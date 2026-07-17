@@ -964,11 +964,11 @@ func (m RootModel) View() string {
 		connTitle = "Conexiones — Buscar: " + m.connPicker.list.FilterQuery() + "_"
 	}
 
-	p1 := renderPanel(1, "Status", statusLines, 0, m.focus == panelStatus, sidebarWidth, panelHeight)
-	p2 := renderPanel(2, dbTitle, labelsFromListModel(m.dbList.list), m.dbList.list.Cursor, m.focus == panelDatabases, sidebarWidth, panelHeight)
-	p3 := renderPanel(3, collTitle, labelsFromListModel(m.collList.list), m.collList.list.Cursor, m.focus == panelCollections, sidebarWidth, panelHeight)
-	p4 := renderPanel(4, idxTitle, labelsFromIndexes(m.idxList), m.idxList.cursor, m.focus == panelIndexes, sidebarWidth, panelHeight)
-	p5 := renderPanel(5, connTitle, labelsFromListModel(m.connPicker.list), m.connPicker.list.Cursor, m.focus == panelConnections, sidebarWidth, panelHeight)
+	p1 := renderPanel(1, "Status", statusLines, 0, m.focus == panelStatus, sidebarWidth, panelHeight, false)
+	p2 := renderPanel(2, dbTitle, labelsFromListModel(m.dbList.list), m.dbList.list.Cursor, m.focus == panelDatabases, sidebarWidth, panelHeight, false)
+	p3 := renderPanel(3, collTitle, labelsFromListModel(m.collList.list), m.collList.list.Cursor, m.focus == panelCollections, sidebarWidth, panelHeight, false)
+	p4 := renderPanel(4, idxTitle, labelsFromIndexes(m.idxList), m.idxList.cursor, m.focus == panelIndexes, sidebarWidth, panelHeight, false)
+	p5 := renderPanel(5, connTitle, labelsFromListModel(m.connPicker.list), m.connPicker.list.Cursor, m.focus == panelConnections, sidebarWidth, panelHeight, false)
 
 	docTitle := fmt.Sprintf("Documentos (%d total, pág %d)", m.docList.total, m.docList.page+1)
 	if m.docList.FuzzyFiltering() {
@@ -996,7 +996,7 @@ func (m RootModel) View() string {
 	}
 	docCursor += offset
 	mainHeight := panelHeight*5 - 5
-	main := renderPanel(0, docTitle, docLines, docCursor, m.focus == panelDocuments, mainWidth, mainHeight)
+	main := renderPanel(0, docTitle, docLines, docCursor, m.focus == panelDocuments, mainWidth, mainHeight, true)
 
 	footer := m.footerText() + helpHintStyle.Render("  |  Creado por jonathanleivag")
 

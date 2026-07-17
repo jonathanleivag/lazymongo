@@ -34,7 +34,7 @@ var (
 // plan). The text marker keeps focus state testable headlessly, and is a
 // genuine accessibility win in real terminals too (works regardless of
 // color support).
-func renderPanel(number int, title string, items []string, cursor int, focused bool, width, height int) string {
+func renderPanel(number int, title string, items []string, cursor int, focused bool, width, height int, alignTop bool) string {
 	borderColor := unfocusedBorderColor
 	if focused {
 		borderColor = focusedBorderColor
@@ -57,7 +57,7 @@ func renderPanel(number int, title string, items []string, cursor int, focused b
 		innerHeight = 1
 	}
 
-	visible := visibleWindow(items, cursor, innerHeight)
+	visible := visibleWindow(items, cursor, innerHeight, alignTop)
 
 	var b strings.Builder
 	b.WriteString(heading)
@@ -72,14 +72,18 @@ func renderPanel(number int, title string, items []string, cursor int, focused b
 // visibleWindow returns the slice of items that should be visible given a
 // maximum of maxLines rows, scrolling so that the item at cursor is always
 // included. Each returned line has the cursor marker/highlight applied.
-func visibleWindow(items []string, cursor int, maxLines int) []string {
+func visibleWindow(items []string, cursor int, maxLines int, alignTop bool) []string {
 	if len(items) == 0 {
 		return nil
 	}
 
 	start := 0
 	if len(items) > maxLines {
-		start = cursor - maxLines/2
+		if alignTop {
+			start = cursor
+		} else {
+			start = cursor - maxLines/2
+		}
 		if start < 0 {
 			start = 0
 		}
