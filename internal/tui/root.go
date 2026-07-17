@@ -314,9 +314,9 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.logf("Refrescando datos...")
 				switch m.focus {
 				case panelDatabases:
-					return m, m.loadDatabases("")
+					return m, m.loadDatabases(m.db)
 				case panelCollections:
-					return m, m.loadCollections("")
+					return m, m.loadCollections(m.coll)
 				case panelDocuments:
 					return m, m.loadDocuments(m.currentFilter(), m.currentSort())
 				case panelIndexes:
@@ -429,16 +429,24 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.dbList = newDbListModel(msg.Databases)
-		if msg.SelectDB == "" {
+		selectDB := msg.SelectDB
+		if selectDB == "" && len(msg.Databases) > 0 {
+			selectDB = msg.Databases[0]
+		}
+		if selectDB == "" {
 			return m, nil
 		}
 		for i, item := range m.dbList.list.Items {
-			if item.ID == msg.SelectDB {
+			if item.ID == selectDB {
 				m.dbList.list.Cursor = i
 				break
 			}
 		}
-		m.db = msg.SelectDB
+		sameDB := (m.db == selectDB)
+		m.db = selectDB
+		if sameDB {
+			return m, m.loadCollections(m.coll)
+		}
 		return m, m.loadCollections("")
 
 	case dbCreateSubmittedMsg:
@@ -499,15 +507,19 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
+		sameColl := (m.coll == selectName)
 		m.coll = selectName
-		m.page = 0
-		m.filter = nil
-		m.docList.filter = ""
-		m.docList.filterCursor = 0
-		m.sort = nil
-		m.docList.sort = ""
-		m.docList.sortCursor = 0
-		return m, tea.Batch(m.loadIndexes(), m.loadDocuments(bson.M{}, bson.M{}))
+		if !sameColl {
+			m.page = 0
+			m.filter = nil
+			m.docList.filter = ""
+			m.docList.filterCursor = 0
+			m.sort = nil
+			m.docList.sort = ""
+			m.docList.sortCursor = 0
+			return m, tea.Batch(m.loadIndexes(), m.loadDocuments(bson.M{}, bson.M{}))
+		}
+		return m, tea.Batch(m.loadIndexes(), m.loadDocuments(m.currentFilter(), m.currentSort()))
 
 	case collCreateSubmittedMsg:
 		client, db, name := m.client, m.db, msg.Name
