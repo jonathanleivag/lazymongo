@@ -360,6 +360,10 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.dbList = newDbListModel(msg.Databases)
 		m.logf("Conectado a %s", m.conn.Name)
+		if len(msg.Databases) > 0 {
+			m.db = msg.Databases[0]
+			return m, m.loadCollections("")
+		}
 		return m, nil
 
 	case connectionChosenMsg:
@@ -480,16 +484,20 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.collList = newCollListModel(msg.Collections)
-		if msg.SelectName == "" {
+		selectName := msg.SelectName
+		if selectName == "" && len(msg.Collections) > 0 {
+			selectName = msg.Collections[0]
+		}
+		if selectName == "" {
 			return m, nil
 		}
 		for i, item := range m.collList.list.Items {
-			if item.ID == msg.SelectName {
+			if item.ID == selectName {
 				m.collList.list.Cursor = i
 				break
 			}
 		}
-		m.coll = msg.SelectName
+		m.coll = selectName
 		m.page = 0
 		m.filter = nil
 		m.docList.filter = ""
