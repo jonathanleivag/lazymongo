@@ -51,20 +51,21 @@ func buildTree(key string, v any, level int, parent *treeNode) *treeNode {
 		isExpanded: false, // Collapse by default so the user can choose to expand them!
 		parent:     parent,
 	}
-	switch val := v.(type) {
-	case bson.M:
+	if mapVal, ok := toMap(v); ok {
 		node.isParent = true
+		node.value = mapVal // Normalize value to bson.M for rendering/copying!
 		var keys []string
-		for k := range val {
+		for k := range mapVal {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			node.children = append(node.children, buildTree(k, val[k], level+1, node))
+			node.children = append(node.children, buildTree(k, mapVal[k], level+1, node))
 		}
-	case bson.A:
+	} else if arrVal, ok := toArray(v); ok {
 		node.isParent = true
-		for idx, item := range val {
+		node.value = arrVal // Normalize value to []any for rendering/copying!
+		for idx, item := range arrVal {
 			node.children = append(node.children, buildTree(fmt.Sprintf("%d", idx), item, level+1, node))
 		}
 	}
@@ -184,7 +185,7 @@ func (m docDetailModel) View() string {
 			switch val := node.value.(type) {
 			case bson.M:
 				typeStr = "Object"
-			case bson.A:
+			case []any:
 				n := len(val)
 				if n > 0 {
 					typeStr = fmt.Sprintf("Array (%d)", n)

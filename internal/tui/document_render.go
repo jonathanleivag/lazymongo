@@ -16,6 +16,32 @@ var (
 	bsonBoolStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("5")) // magenta
 )
 
+func toMap(v any) (bson.M, bool) {
+	switch val := v.(type) {
+	case bson.M:
+		return val, true
+	case map[string]any:
+		return bson.M(val), true
+	case bson.D:
+		m := bson.M{}
+		for _, e := range val {
+			m[e.Key] = e.Value
+		}
+		return m, true
+	}
+	return nil, false
+}
+
+func toArray(v any) ([]any, bool) {
+	switch val := v.(type) {
+	case bson.A:
+		return []any(val), true
+	case []any:
+		return val, true
+	}
+	return nil, false
+}
+
 // styleBSONValue renders a document field's value as a single-line string,
 // colored by its real Go/BSON type. Arrays and nested documents render as a
 // collapsed placeholder ("Array (N)" / "Object") rather than their raw
@@ -23,6 +49,17 @@ var (
 // and avoiding new interactive state for drilling into sub-fields (the
 // existing detail popup already covers that; see this plan's spec).
 func styleBSONValue(v any) string {
+	if _, ok := toMap(v); ok {
+		return helpHintStyle.Render("Object")
+	}
+	if arr, ok := toArray(v); ok {
+		n := len(arr)
+		if n > 0 {
+			return helpHintStyle.Render(fmt.Sprintf("Array (%d)", n))
+		}
+		return helpHintStyle.Render("Array (empty)")
+	}
+
 	switch val := v.(type) {
 	case nil:
 		return helpHintStyle.Render("null")
@@ -36,10 +73,6 @@ func styleBSONValue(v any) string {
 		return bsonBoolStyle.Render(fmt.Sprintf("%v", val))
 	case time.Time:
 		return bsonNumberStyle.Render(val.Format(time.RFC3339))
-	case bson.A:
-		return helpHintStyle.Render(fmt.Sprintf("Array (%d)", len(val)))
-	case bson.M:
-		return helpHintStyle.Render("Object")
 	default:
 		return fmt.Sprintf("%v", val)
 	}
