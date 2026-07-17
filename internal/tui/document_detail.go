@@ -22,19 +22,94 @@ type valueCopiedMsg struct {
 	Text string
 }
 
+type treeNode struct {
+	key        string
+	value      any
+	level      int
+	isParent   bool
+	isExpanded bool
+	children   []*treeNode
+	parent     *treeNode
+}
+
+func (n *treeNode) fullPath() string {
+	if n.parent == nil || n.parent.key == "" {
+		return n.key
+	}
+	parentPath := n.parent.fullPath()
+	if parentPath == "" {
+		return n.key
+	}
+	return parentPath + "." + n.key
+}
+
+func buildTree(key string, v any, level int, parent *treeNode) *treeNode {
+	node := &treeNode{
+		key:        key,
+		value:      v,
+		level:      level,
+		isExpanded: false, // Collapse by default so the user can choose to expand them!
+		parent:     parent,
+	}
+	switch val := v.(type) {
+	case bson.M:
+		node.isParent = true
+		var keys []string
+		for k := range val {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			node.children = append(node.children, buildTree(k, val[k], level+1, node))
+		}
+	case bson.A:
+		node.isParent = true
+		for idx, item := range val {
+			node.children = append(node.children, buildTree(fmt.Sprintf("%d", idx), item, level+1, node))
+		}
+	}
+	return node
+}
+
+func gatherVisibleNodes(node *treeNode, list []*treeNode) []*treeNode {
+	if node.key != "" || node.level >= 0 {
+		list = append(list, node)
+	}
+	if (node.key == "" && node.level == -1) || (node.isParent && node.isExpanded) {
+		for _, child := range node.children {
+			list = gatherVisibleNodes(child, list)
+		}
+	}
+	return list
+}
+
 type docDetailModel struct {
-	doc    bson.M
-	fields []string
-	cursor int
+	doc          bson.M
+	root         *treeNode
+	visibleNodes []*treeNode
+	cursor       int
 }
 
 func newDocDetailModel(doc bson.M) docDetailModel {
-	fields := make([]string, 0, len(doc))
-	for k := range doc {
-		fields = append(fields, k)
+	dummyRoot := &treeNode{
+		key:        "",
+		value:      doc,
+		level:      -1,
+		isParent:   true,
+		isExpanded: true,
 	}
-	sort.Strings(fields)
-	return docDetailModel{doc: doc, fields: fields}
+	var keys []string
+	for k := range doc {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		dummyRoot.children = append(dummyRoot.children, buildTree(k, doc[k], 0, dummyRoot))
+	}
+
+	m := docDetailModel{doc: doc, root: dummyRoot}
+	m.visibleNodes = gatherVisibleNodes(m.root, nil)
+	return m
 }
 
 func (m docDetailModel) Update(msg tea.Msg) (docDetailModel, tea.Cmd) {
@@ -44,24 +119,38 @@ func (m docDetailModel) Update(msg tea.Msg) (docDetailModel, tea.Cmd) {
 	}
 	switch keyMsg.String() {
 	case "j", "down":
-		if m.cursor < len(m.fields)-1 {
+		if m.cursor < len(m.visibleNodes)-1 {
 			m.cursor++
 		}
 	case "k", "up":
 		if m.cursor > 0 {
 			m.cursor--
 		}
+	case "enter", "space":
+		if len(m.visibleNodes) > 0 {
+			node := m.visibleNodes[m.cursor]
+			if node.isParent {
+				node.isExpanded = !node.isExpanded
+				m.visibleNodes = gatherVisibleNodes(m.root, nil)
+				if m.cursor >= len(m.visibleNodes) {
+					m.cursor = len(m.visibleNodes) - 1
+				}
+				if m.cursor < 0 {
+					m.cursor = 0
+				}
+			}
+		}
 	case "e":
-		if len(m.fields) > 0 {
-			field := m.fields[m.cursor]
-			value := m.doc[field]
-			return m, func() tea.Msg { return fieldSelectedMsg{Field: field, Value: value} }
+		if len(m.visibleNodes) > 0 {
+			node := m.visibleNodes[m.cursor]
+			if !node.isParent {
+				return m, func() tea.Msg { return fieldSelectedMsg{Field: node.fullPath(), Value: node.value} }
+			}
 		}
 	case "y", "c":
-		if len(m.fields) > 0 {
-			field := m.fields[m.cursor]
-			value := m.doc[field]
-			text := valueToCopyString(value)
+		if len(m.visibleNodes) > 0 {
+			node := m.visibleNodes[m.cursor]
+			text := valueToCopyString(node.value)
 			_ = copyToClipboard(text)
 			return m, func() tea.Msg { return valueCopiedMsg{Text: text} }
 		}
@@ -78,14 +167,39 @@ func (m docDetailModel) Update(msg tea.Msg) (docDetailModel, tea.Cmd) {
 func (m docDetailModel) View() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Documento") + "\n\n")
-	for i, field := range m.fields {
+	for i, node := range m.visibleNodes {
 		prefix := "  "
 		if i == m.cursor {
 			prefix = cursorStyle.Render("> ")
 		}
-		b.WriteString(prefix + fmt.Sprintf("%s: %v\n", field, m.doc[field]))
+		indent := strings.Repeat("  ", node.level)
+		
+		var line string
+		if node.isParent {
+			indicator := "▶ "
+			if node.isExpanded {
+				indicator = "▼ "
+			}
+			var typeStr string
+			switch val := node.value.(type) {
+			case bson.M:
+				typeStr = "Object"
+			case bson.A:
+				n := len(val)
+				if n > 0 {
+					typeStr = fmt.Sprintf("Array (%d)", n)
+				} else {
+					typeStr = "Array (empty)"
+				}
+			}
+			line = fmt.Sprintf("%s%s%s: %s", indent, indicator, node.key, helpHintStyle.Render(typeStr))
+		} else {
+			line = fmt.Sprintf("%s  %s: %s", indent, node.key, styleBSONValue(node.value))
+		}
+		
+		b.WriteString(prefix + line + "\n")
 	}
-	b.WriteString("\n" + helpHintStyle.Render("[e] editar campo  [y] copiar valor  [E] editar completo  [d] borrar  [Esc] volver"))
+	b.WriteString("\n" + helpHintStyle.Render("[Enter/Espacio] expandir/colapsar  [e] editar campo  [y] copiar valor  [E] editar completo  [d] borrar  [Esc] volver"))
 	return b.String()
 }
 
@@ -139,5 +253,8 @@ func copyToClipboard(text string) error {
 	if err := in.Close(); err != nil {
 		return err
 	}
-	return cmd.Wait()
+	if err := cmd.Wait(); err != nil {
+		return err
+	}
+	return nil
 }
