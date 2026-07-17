@@ -66,6 +66,11 @@ func styleBSONValue(v any) string {
 	case bson.ObjectID:
 		return bsonObjectIDStyle.Render(val.String())
 	case string:
+		runes := []rune(val)
+		if len(runes) > 80 {
+			truncated := string(runes[:80]) + "..."
+			return bsonStringStyle.Render(fmt.Sprintf("%q", truncated))
+		}
 		return bsonStringStyle.Render(fmt.Sprintf("%q", val))
 	case int32, int64, int, float64, float32:
 		return bsonNumberStyle.Render(fmt.Sprintf("%v", val))
