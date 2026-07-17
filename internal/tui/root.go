@@ -308,6 +308,26 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.popup == popupNone && !m.inTextEntry() {
 			switch keyMsg.String() {
+			case "r":
+				m.logf("Refrescando datos...")
+				switch m.focus {
+				case panelDatabases:
+					return m, m.loadDatabases("")
+				case panelCollections:
+					return m, m.loadCollections("")
+				case panelDocuments:
+					return m, m.loadDocuments(m.currentFilter(), m.currentSort())
+				case panelIndexes:
+					return m, m.loadIndexes()
+				case panelConnections:
+					conns, err := config.ListConnections()
+					if err != nil {
+						m.err = err
+						return m, nil
+					}
+					m.connPicker = newConnectionPickerModel(conns)
+					return m, nil
+				}
 			case "1":
 				m.focus = panelStatus
 				return m, nil
