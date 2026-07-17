@@ -996,7 +996,8 @@ func (m RootModel) View() string {
 	}
 	docCursor += offset
 	mainHeight := panelHeight*5 - 5
-	main := renderPanel(0, docTitle, docLines, docCursor, m.focus == panelDocuments, mainWidth, mainHeight, true)
+	alignTop := m.focus == panelDocuments && !m.docList.filtering && !m.docList.sorting
+	main := renderPanel(0, docTitle, docLines, docCursor, m.focus == panelDocuments, mainWidth, mainHeight, alignTop)
 
 	footer := m.footerText() + helpHintStyle.Render("  |  Creado por jonathanleivag")
 
