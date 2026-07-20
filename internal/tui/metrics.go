@@ -63,7 +63,7 @@ func newMetricsModel(client mongo.Client) metricsModel {
 }
 
 func (m metricsModel) initCmd() tea.Cmd {
-	return pollMetricsCmd(m.client, nil)
+	return pollMetricsCmd(m.client, nil, 0)
 }
 
 func (m metricsModel) Update(msg tea.Msg) (metricsModel, tea.Cmd) {
@@ -76,19 +76,28 @@ func (m metricsModel) Update(msg tea.Msg) (metricsModel, tea.Cmd) {
 	case metricsPolledMsg:
 		if msg.Err != nil {
 			m.err = msg.Err
-			return m, nil
+			return m, pollMetricsCmd(m.client, m.data, 1*time.Second)
 		}
 		m.data = msg.Data
 		m.err = nil
 		// Continue polling in background
-		return m, pollMetricsCmd(m.client, m.data)
+		return m, pollMetricsCmd(m.client, m.data, 1*time.Second)
 	}
 	return m, nil
 }
 
 func (m metricsModel) View(width, height int) string {
-	if m.err != nil {
-		return fmt.Sprintf("Error cargando métricas: %v\n\nPresione [Esc] para volver", m.err)
+	if m.err != nil && m.data == nil {
+		var errMsg strings.Builder
+		errMsg.WriteString(fmt.Sprintf("Error cargando métricas: %v\n\n", m.err))
+		errMsg.WriteString("Reintentando conexión automáticamente en el fondo...\n\n")
+		errMsg.WriteString(helpHintStyle.Render("[Esc/q] Volver a lazymongo"))
+		box := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("9")).
+			Padding(1, 2).
+			Render(errMsg.String())
+		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
 	}
 	if m.data == nil {
 		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, "Cargando métricas de rendimiento...")
@@ -97,10 +106,13 @@ func (m metricsModel) View(width, height int) string {
 	var b strings.Builder
 
 	// Header
-	b.WriteString(lipgloss.NewStyle().
-		Bold(true).
-		Foreground(focusedBorderColor).
-		Render("=== MONITOREO DE RENDIMIENTO DE MONGODB ===") + "\n\n")
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(focusedBorderColor)
+	if m.err != nil {
+		warnStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("9"))
+		b.WriteString(headerStyle.Render("=== MONITOREO DE RENDIMIENTO DE MONGODB ===") + "  " + warnStyle.Render("[⚠️ ERROR DE CONEXIÓN: Reintentando...]") + "\n\n")
+	} else {
+		b.WriteString(headerStyle.Render("=== MONITOREO DE RENDIMIENTO DE MONGODB ===") + "\n\n")
+	}
 
 	// Memory & Connections row
 	memTitle := lipgloss.NewStyle().Bold(true).Render("MEMORIA")
@@ -192,13 +204,13 @@ func formatBytesRate(rate float64) string {
 	}
 }
 
-func pollMetricsCmd(client mongo.Client, prev *metricsData) tea.Cmd {
+func pollMetricsCmd(client mongo.Client, prev *metricsData, delay time.Duration) tea.Cmd {
 	return func() tea.Msg {
-		if prev != nil {
-			time.Sleep(1 * time.Second)
+		if delay > 0 {
+			time.Sleep(delay)
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
 		statusRaw, err := client.RunAdminCommand(ctx, bson.D{{Key: "serverStatus", Value: 1}})
