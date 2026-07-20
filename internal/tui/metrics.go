@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,6 +18,11 @@ type metricsPolledMsg struct {
 	Err  error
 }
 
+type killCompletedMsg struct {
+	OpID int64
+	Err  error
+}
+
 type ActiveOpInfo struct {
 	OpID      int64
 	Namespace string
@@ -24,38 +30,48 @@ type ActiveOpInfo struct {
 	Op        string
 }
 
+type CollectionHotness struct {
+	Namespace string
+	TimeDelta float64
+	Percent   float64
+}
+
 type metricsData struct {
-	Time        time.Time
-	MemVirtual  float64
-	MemRes      float64
-	ConnCurrent int
-	ConnAvail   int
-	NetBytesIn  int64
-	NetBytesOut int64
-
-	OpsInsert  int64
-	OpsQuery   int64
-	OpsUpdate  int64
-	OpsDelete  int64
-	OpsGetMore int64
-	OpsCommand int64
-
-	InsertRate  float64
-	QueryRate   float64
-	UpdateRate  float64
-	DeleteRate  float64
-	GetMoreRate float64
-	CommandRate float64
-	NetInRate   float64
-	NetOutRate  float64
-
-	ActiveOps []ActiveOpInfo
+	Time         time.Time
+	MemVirtual   float64
+	MemRes       float64
+	ConnCurrent  int
+	ConnAvail    int
+	NetBytesIn   int64
+	NetBytesOut  int64
+	OpsInsert    int64
+	OpsQuery     int64
+	OpsUpdate    int64
+	OpsDelete    int64
+	OpsGetMore   int64
+	OpsCommand   int64
+	InsertRate   float64
+	QueryRate    float64
+	UpdateRate   float64
+	DeleteRate   float64
+	GetMoreRate  float64
+	CommandRate  float64
+	NetInRate    float64
+	NetOutRate   float64
+	ActiveOps    []ActiveOpInfo
+	HottestColls []CollectionHotness
+	topTimes     map[string]int64
 }
 
 type metricsModel struct {
-	client mongo.Client
-	data   *metricsData
-	err    error
+	client        mongo.Client
+	data          *metricsData
+	err           error
+	cursor        int
+	confirmKill   bool
+	killOpID      int64
+	killNamespace string
+	killOpType    string
 }
 
 func newMetricsModel(client mongo.Client) metricsModel {
@@ -67,12 +83,66 @@ func (m metricsModel) initCmd() tea.Cmd {
 }
 
 func (m metricsModel) Update(msg tea.Msg) (metricsModel, tea.Cmd) {
+	if m.confirmKill {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "y", "Y":
+				m.confirmKill = false
+				opid := m.killOpID
+				return m, func() tea.Msg {
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					_, err := m.client.RunAdminCommand(ctx, bson.D{
+						{Key: "killOp", Value: 1},
+						{Key: "op", Value: opid},
+					})
+					return killCompletedMsg{OpID: opid, Err: err}
+				}
+			case "n", "N", "esc":
+				m.confirmKill = false
+				return m, nil
+			}
+		}
+		return m, nil
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "esc", "q", "m":
 			return m, func() tea.Msg { return listBackMsg{} }
+		case "j", "down":
+			if m.data != nil && len(m.data.ActiveOps) > 0 {
+				m.cursor++
+				if m.cursor >= len(m.data.ActiveOps) {
+					m.cursor = 0
+				}
+			}
+		case "k", "up":
+			if m.data != nil && len(m.data.ActiveOps) > 0 {
+				m.cursor--
+				if m.cursor < 0 {
+					m.cursor = len(m.data.ActiveOps) - 1
+				}
+			}
+		case "d", "x":
+			if m.data != nil && len(m.data.ActiveOps) > 0 && m.cursor >= 0 && m.cursor < len(m.data.ActiveOps) {
+				op := m.data.ActiveOps[m.cursor]
+				m.confirmKill = true
+				m.killOpID = op.OpID
+				m.killNamespace = op.Namespace
+				m.killOpType = op.Op
+			}
 		}
+	case killCompletedMsg:
+		if msg.Err != nil {
+			m.err = fmt.Errorf("error matando operación %d: %w", msg.OpID, msg.Err)
+		}
+		// Reset cursor and poll immediately
+		m.cursor = 0
+		return m, pollMetricsCmd(m.client, m.data, 0)
+
 	case metricsPolledMsg:
 		if msg.Err != nil {
 			m.err = msg.Err
@@ -80,13 +150,37 @@ func (m metricsModel) Update(msg tea.Msg) (metricsModel, tea.Cmd) {
 		}
 		m.data = msg.Data
 		m.err = nil
-		// Continue polling in background
+
+		if m.data != nil {
+			if len(m.data.ActiveOps) == 0 {
+				m.cursor = 0
+			} else if m.cursor >= len(m.data.ActiveOps) {
+				m.cursor = len(m.data.ActiveOps) - 1
+			}
+		}
+
 		return m, pollMetricsCmd(m.client, m.data, 1*time.Second)
 	}
 	return m, nil
 }
 
 func (m metricsModel) View(width, height int) string {
+	if m.confirmKill {
+		var q strings.Builder
+		q.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("9")).Render("🚨 CONFIRMACIÓN: MATAR OPERACIÓN") + "\n\n")
+		q.WriteString(fmt.Sprintf("¿Estás seguro de que deseas matar la operación %d?\n", m.killOpID))
+		q.WriteString(fmt.Sprintf("Colección: %s\n", m.killNamespace))
+		q.WriteString(fmt.Sprintf("Tipo:      %s\n\n", strings.ToUpper(m.killOpType)))
+		q.WriteString("[y] Matar operación   [n/Esc] Cancelar")
+
+		box := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("9")).
+			Padding(1, 2).
+			Render(q.String())
+		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+	}
+
 	if m.err != nil && m.data == nil {
 		var errMsg strings.Builder
 		errMsg.WriteString(fmt.Sprintf("Error cargando métricas: %v\n\n", m.err))
@@ -103,72 +197,121 @@ func (m metricsModel) View(width, height int) string {
 		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, "Cargando métricas de rendimiento...")
 	}
 
-	var b strings.Builder
-
-	// Header
-	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(focusedBorderColor)
-	if m.err != nil {
-		warnStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("9"))
-		b.WriteString(headerStyle.Render("=== MONITOREO DE RENDIMIENTO DE MONGODB ===") + "  " + warnStyle.Render("[⚠️ ERROR DE CONEXIÓN: Reintentando...]") + "\n\n")
-	} else {
-		b.WriteString(headerStyle.Render("=== MONITOREO DE RENDIMIENTO DE MONGODB ===") + "\n\n")
+	// Layout columns
+	leftWidth := (width - 10) / 2
+	if leftWidth < 40 {
+		leftWidth = 40
+	}
+	rightWidth := width - leftWidth - 8
+	if rightWidth < 40 {
+		rightWidth = 40
 	}
 
-	// Memory & Connections row
-	memTitle := lipgloss.NewStyle().Bold(true).Render("MEMORIA")
-	connTitle := lipgloss.NewStyle().Bold(true).Render("CONEXIONES")
-
+	// LEFT COLUMN (Metrics rates, connections, network)
+	var left strings.Builder
+	left.WriteString(lipgloss.NewStyle().Bold(true).Render("MEMORIA") + "\n")
 	memMax := m.data.MemVirtual
 	if memMax < 16.0 {
 		memMax = 16.0
 	}
-	memBar := renderProgressBar(m.data.MemRes, memMax, 20, "2", "8")
+	memBar := renderProgressBar(m.data.MemRes, memMax, 18, "2", "8")
+	left.WriteString(fmt.Sprintf("  Virtual:   %.2f GB\n", m.data.MemVirtual))
+	left.WriteString(fmt.Sprintf("  Residente: %.2f GB\n", m.data.MemRes))
+	left.WriteString(fmt.Sprintf("  Uso:       %s\n\n", memBar))
 
+	left.WriteString(lipgloss.NewStyle().Bold(true).Render("CONEXIONES") + "\n")
 	connMax := float64(m.data.ConnCurrent + m.data.ConnAvail)
-	connBar := renderProgressBar(float64(m.data.ConnCurrent), connMax, 20, "6", "8")
+	connBar := renderProgressBar(float64(m.data.ConnCurrent), connMax, 18, "6", "8")
+	left.WriteString(fmt.Sprintf("  Activas:     %d\n", m.data.ConnCurrent))
+	left.WriteString(fmt.Sprintf("  Disponibles: %d\n", m.data.ConnAvail))
+	left.WriteString(fmt.Sprintf("  Uso:         %s\n\n", connBar))
 
-	b.WriteString(fmt.Sprintf("%-40s %-40s\n", memTitle, connTitle))
-	b.WriteString(fmt.Sprintf("Virtual:   %-31.2f GB   Activas:     %-31d\n", m.data.MemVirtual, m.data.ConnCurrent))
-	b.WriteString(fmt.Sprintf("Residente: %-31.2f GB   Disponibles: %-31d\n", m.data.MemRes, m.data.ConnAvail))
-	b.WriteString(fmt.Sprintf("Uso:       %-31s   Uso:         %-31s\n\n", memBar, connBar))
+	left.WriteString(lipgloss.NewStyle().Bold(true).Render("OPERACIONES POR SEGUNDO") + "\n")
+	left.WriteString(fmt.Sprintf("  Insertar:    %6.1f ops/s  |  Consulta:  %6.1f ops/s\n", m.data.InsertRate, m.data.QueryRate))
+	left.WriteString(fmt.Sprintf("  Actualizar:  %6.1f ops/s  |  Borrar:    %6.1f ops/s\n", m.data.UpdateRate, m.data.DeleteRate))
+	left.WriteString(fmt.Sprintf("  Comando:     %6.1f ops/s  |  GetMore:   %6.1f ops/s\n\n", m.data.CommandRate, m.data.GetMoreRate))
 
-	// Operations section
-	opsTitle := lipgloss.NewStyle().Bold(true).Render("OPERACIONES POR SEGUNDO")
-	b.WriteString(opsTitle + "\n")
-	b.WriteString(fmt.Sprintf("  Insertar:    %6.1f ops/s   |   Consulta:  %6.1f ops/s\n", m.data.InsertRate, m.data.QueryRate))
-	b.WriteString(fmt.Sprintf("  Actualizar:  %6.1f ops/s   |   Borrar:    %6.1f ops/s\n", m.data.UpdateRate, m.data.DeleteRate))
-	b.WriteString(fmt.Sprintf("  Comando:     %6.1f ops/s   |   GetMore:   %6.1f ops/s\n\n", m.data.CommandRate, m.data.GetMoreRate))
+	left.WriteString(lipgloss.NewStyle().Bold(true).Render("RENDIMIENTO DE RED") + "\n")
+	left.WriteString(fmt.Sprintf("  Entrada:     %s\n", formatBytesRate(m.data.NetInRate)))
+	left.WriteString(fmt.Sprintf("  Salida:      %s\n", formatBytesRate(m.data.NetOutRate)))
 
-	// Network section
-	netTitle := lipgloss.NewStyle().Bold(true).Render("RENDIMIENTO DE RED")
-	b.WriteString(netTitle + "\n")
-	b.WriteString(fmt.Sprintf("  Entrada:     %-30s\n", formatBytesRate(m.data.NetInRate)))
-	b.WriteString(fmt.Sprintf("  Salida:      %-30s\n\n", formatBytesRate(m.data.NetOutRate)))
-
-	// Slowest / Active Operations section
-	opsActiveTitle := lipgloss.NewStyle().Bold(true).Render("OPERACIONES ACTIVAS (currentOp)")
-	b.WriteString(opsActiveTitle + "\n")
-	if len(m.data.ActiveOps) == 0 {
-		b.WriteString("  (ninguna operación activa en ejecución)\n")
+	// RIGHT COLUMN (Hottest Collections, Slowest Ops)
+	var right strings.Builder
+	right.WriteString(lipgloss.NewStyle().Bold(true).Render("COLECCIONES MÁS ACTIVAS (Hottest)") + "\n")
+	if len(m.data.HottestColls) == 0 {
+		right.WriteString("  (sin actividad de lectura/escritura en colecciones)\n\n")
 	} else {
-		b.WriteString(fmt.Sprintf("  %-10s %-40s %-12s %-10s\n", "OPID", "COLECCIÓN", "DURACIÓN", "TIPO"))
-		for _, op := range m.data.ActiveOps {
-			ns := op.Namespace
-			if len(ns) > 40 {
-				ns = ns[:37] + "..."
+		for _, hc := range m.data.HottestColls {
+			ns := hc.Namespace
+			if len(ns) > rightWidth-12 {
+				ns = ns[:rightWidth-15] + "..."
 			}
-			b.WriteString(fmt.Sprintf("  %-10d %-40s %-12s %-10s\n", op.OpID, ns, op.Duration, strings.ToUpper(op.Op)))
+			right.WriteString(fmt.Sprintf("  %-*s %5.1f%%\n", rightWidth-12, ns, hc.Percent))
+		}
+		right.WriteString("\n")
+	}
+
+	right.WriteString(lipgloss.NewStyle().Bold(true).Render("OPERACIONES ACTIVAS (currentOp)") + "\n")
+	if len(m.data.ActiveOps) == 0 {
+		right.WriteString("  (ninguna operación activa en ejecución)\n")
+	} else {
+		right.WriteString(fmt.Sprintf("    %-8s %-*s %-10s\n", "OPID", rightWidth-24, "COLECCIÓN", "DURACIÓN"))
+
+		// Sliding window for operations list
+		startIdx := 0
+		if m.cursor >= 4 {
+			startIdx = m.cursor - 3
+		}
+		endIdx := startIdx + 4
+		if endIdx > len(m.data.ActiveOps) {
+			endIdx = len(m.data.ActiveOps)
+			startIdx = endIdx - 4
+			if startIdx < 0 {
+				startIdx = 0
+			}
+		}
+
+		for idx := startIdx; idx < endIdx; idx++ {
+			op := m.data.ActiveOps[idx]
+			marker := " "
+			if idx == m.cursor {
+				marker = lipgloss.NewStyle().Foreground(focusedBorderColor).Render(">")
+			}
+			ns := op.Namespace
+			if len(ns) > rightWidth-24 {
+				ns = ns[:rightWidth-27] + "..."
+			}
+			right.WriteString(fmt.Sprintf("  %s %-8d %-*s %-10s\n", marker, op.OpID, rightWidth-24, ns, op.Duration))
+		}
+		if len(m.data.ActiveOps) > 4 {
+			right.WriteString(fmt.Sprintf("  (mostrando %d de %d operaciones activas)\n", endIdx-startIdx, len(m.data.ActiveOps)))
 		}
 	}
 
-	b.WriteString("\n" + helpHintStyle.Render("[Esc/q] Volver a lazymongo"))
+	// Composite view
+	leftCol := lipgloss.NewStyle().Width(leftWidth).Render(left.String())
+	rightCol := lipgloss.NewStyle().Width(rightWidth).Render(right.String())
+	mainRow := lipgloss.JoinHorizontal(lipgloss.Top, leftCol, rightCol)
+
+	var b strings.Builder
+	// Header
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(focusedBorderColor)
+	if m.err != nil {
+		warnStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("9"))
+		b.WriteString(headerStyle.Render("=== MONITOREO DE RENDIMIENTO DE MONGODB ===") + "  " + warnStyle.Render("[⚠️ ERROR: Reintentando...]") + "\n\n")
+	} else {
+		b.WriteString(headerStyle.Render("=== MONITOREO DE RENDIMIENTO DE MONGODB ===") + "\n\n")
+	}
+
+	b.WriteString(mainRow + "\n\n")
+	b.WriteString(helpHintStyle.Render("[j/k/↑/↓] Seleccionar OP  [d/x] Matar OP  [Esc/q] Volver a lazymongo"))
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(focusedBorderColor).
 		Padding(1, 2).
-		Width(width - 6).
-		Height(height - 4).
+		Width(width - 4).
+		Height(height - 2).
 		Render(b.String())
 
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
@@ -218,6 +361,70 @@ func pollMetricsCmd(client mongo.Client, prev *metricsData, delay time.Duration)
 			return metricsPolledMsg{Err: err}
 		}
 
+		// Query top command for hottest collections
+		var hottestColls []CollectionHotness
+		currentTimes := make(map[string]int64)
+		topRaw, topErr := client.RunAdminCommand(ctx, bson.D{{Key: "top", Value: 1}})
+		if topErr == nil {
+			if totalsVal, ok := toMap(topRaw["totals"]); ok {
+				for ns, nsVal := range totalsVal {
+					if nsMap, ok := toMap(nsVal); ok {
+						if totalMap, ok := toMap(nsMap["total"]); ok {
+							if tVal, ok := totalMap["time"]; ok {
+								currentTimes[ns] = toInt64(tVal)
+							}
+						}
+					}
+				}
+
+				var deltas []CollectionHotness
+				var sumDeltas float64
+				if prev != nil && prev.topTimes != nil {
+					for ns, currTime := range currentTimes {
+						prevTime := prev.topTimes[ns]
+						delta := currTime - prevTime
+						if delta < 0 {
+							delta = 0
+						}
+						if delta > 0 {
+							deltas = append(deltas, CollectionHotness{
+								Namespace: ns,
+								TimeDelta: float64(delta),
+							})
+							sumDeltas += float64(delta)
+						}
+					}
+				}
+
+				if sumDeltas > 0 {
+					for i := range deltas {
+						deltas[i].Percent = (deltas[i].TimeDelta / sumDeltas) * 100.0
+					}
+					sort.Slice(deltas, func(i, j int) bool {
+						return deltas[i].Percent > deltas[j].Percent
+					})
+					hottestColls = deltas
+				} else {
+					for ns, totalTime := range currentTimes {
+						if totalTime > 0 {
+							deltas = append(deltas, CollectionHotness{
+								Namespace: ns,
+								TimeDelta: float64(totalTime),
+							})
+						}
+					}
+					sort.Slice(deltas, func(i, j int) bool {
+						return deltas[i].TimeDelta > deltas[j].TimeDelta
+					})
+					hottestColls = deltas
+				}
+				if len(hottestColls) > 5 {
+					hottestColls = hottestColls[:5]
+				}
+			}
+		}
+
+		// Query currentOp for active slow operations
 		var activeOps []ActiveOpInfo
 		opRaw, err := client.RunAdminCommand(ctx, bson.D{
 			{Key: "currentOp", Value: 1},
@@ -247,7 +454,6 @@ func pollMetricsCmd(client mongo.Client, prev *metricsData, delay time.Duration)
 						if durationUs > 1000000 {
 							durationStr = fmt.Sprintf("%.2f s", float64(durationUs)/1000000.0)
 						}
-						// Only list ops with positive duration or defined types
 						if opid > 0 && ns != "" {
 							activeOps = append(activeOps, ActiveOpInfo{
 								OpID:      opid,
@@ -263,6 +469,8 @@ func pollMetricsCmd(client mongo.Client, prev *metricsData, delay time.Duration)
 
 		data := parseServerStatus(statusRaw, prev)
 		data.ActiveOps = activeOps
+		data.HottestColls = hottestColls
+		data.topTimes = currentTimes
 		return metricsPolledMsg{Data: data}
 	}
 }
