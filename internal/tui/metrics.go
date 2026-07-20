@@ -224,17 +224,12 @@ func pollMetricsCmd(client mongo.Client, prev *metricsData, delay time.Duration)
 			{Key: "active", Value: true},
 		})
 		if err == nil {
-			if inprog, ok := opRaw["inprog"].(bson.A); ok {
+			if inprog, ok := toArray(opRaw["inprog"]); ok {
 				for _, opVal := range inprog {
-					if opMap, ok := opVal.(bson.M); ok {
+					if opMap, ok := toMap(opVal); ok {
 						opid := int64(0)
 						if idVal, ok := opMap["opid"]; ok {
-							switch v := idVal.(type) {
-							case int32:
-								opid = int64(v)
-							case int64:
-								opid = v
-							}
+							opid = toInt64(idVal)
 						}
 						ns := ""
 						if nsVal, ok := opMap["ns"].(string); ok {
@@ -246,12 +241,7 @@ func pollMetricsCmd(client mongo.Client, prev *metricsData, delay time.Duration)
 						}
 						durationUs := int64(0)
 						if durVal, ok := opMap["microsecs_running"]; ok {
-							switch v := durVal.(type) {
-							case int32:
-								durationUs = int64(v)
-							case int64:
-								durationUs = v
-							}
+							durationUs = toInt64(durVal)
 						}
 						durationStr := fmt.Sprintf("%.2f ms", float64(durationUs)/1000.0)
 						if durationUs > 1000000 {
@@ -282,68 +272,34 @@ func parseServerStatus(status bson.M, prev *metricsData) *metricsData {
 		Time: time.Now(),
 	}
 
-	if mem, ok := status["mem"].(bson.M); ok {
+	if mem, ok := toMap(status["mem"]); ok {
 		if v, ok := mem["virtual"]; ok {
-			switch val := v.(type) {
-			case int32:
-				data.MemVirtual = float64(val) / 1024.0
-			case int64:
-				data.MemVirtual = float64(val) / 1024.0
-			case float64:
-				data.MemVirtual = val / 1024.0
-			}
+			data.MemVirtual = toFloat64(v) / 1024.0
 		}
 		if r, ok := mem["resident"]; ok {
-			switch val := r.(type) {
-			case int32:
-				data.MemRes = float64(val) / 1024.0
-			case int64:
-				data.MemRes = float64(val) / 1024.0
-			case float64:
-				data.MemRes = val / 1024.0
-			}
+			data.MemRes = toFloat64(r) / 1024.0
 		}
 	}
 
-	if conns, ok := status["connections"].(bson.M); ok {
+	if conns, ok := toMap(status["connections"]); ok {
 		if c, ok := conns["current"]; ok {
-			switch val := c.(type) {
-			case int32:
-				data.ConnCurrent = int(val)
-			case int64:
-				data.ConnCurrent = int(val)
-			}
+			data.ConnCurrent = int(toInt64(c))
 		}
 		if a, ok := conns["available"]; ok {
-			switch val := a.(type) {
-			case int32:
-				data.ConnAvail = int(val)
-			case int64:
-				data.ConnAvail = int(val)
-			}
+			data.ConnAvail = int(toInt64(a))
 		}
 	}
 
-	if net, ok := status["network"].(bson.M); ok {
+	if net, ok := toMap(status["network"]); ok {
 		if bi, ok := net["bytesIn"]; ok {
-			switch val := bi.(type) {
-			case int32:
-				data.NetBytesIn = int64(val)
-			case int64:
-				data.NetBytesIn = val
-			}
+			data.NetBytesIn = toInt64(bi)
 		}
 		if bo, ok := net["bytesOut"]; ok {
-			switch val := bo.(type) {
-			case int32:
-				data.NetBytesOut = int64(val)
-			case int64:
-				data.NetBytesOut = val
-			}
+			data.NetBytesOut = toInt64(bo)
 		}
 	}
 
-	if ops, ok := status["opcounters"].(bson.M); ok {
+	if ops, ok := toMap(status["opcounters"]); ok {
 		if ins, ok := ops["insert"]; ok {
 			data.OpsInsert = toInt64(ins)
 		}
@@ -384,12 +340,36 @@ func parseServerStatus(status bson.M, prev *metricsData) *metricsData {
 
 func toInt64(v any) int64 {
 	switch val := v.(type) {
+	case int:
+		return int64(val)
 	case int32:
 		return int64(val)
 	case int64:
 		return val
 	case float64:
 		return int64(val)
+	case float32:
+		return int64(val)
+	case uint32:
+		return int64(val)
+	case uint64:
+		return int64(val)
+	}
+	return 0
+}
+
+func toFloat64(v any) float64 {
+	switch val := v.(type) {
+	case float64:
+		return val
+	case float32:
+		return float64(val)
+	case int64:
+		return float64(val)
+	case int32:
+		return float64(val)
+	case int:
+		return float64(val)
 	}
 	return 0
 }
