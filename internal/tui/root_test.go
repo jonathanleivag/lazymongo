@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jonathanleivag/lazymongo/internal/config"
@@ -1177,8 +1178,16 @@ func TestRootModel_PressingMOpensMetricsPopupAndEscClosesIt(t *testing.T) {
 		t.Fatalf("expected an initial polling command")
 	}
 
-	// Trigger metricsPolledMsg from cmd
-	msg := cmd()
+	// Trigger metricsPolledMsg directly
+	msg := metricsPolledMsg{
+		Data: &metricsData{
+			Time:        time.Now(),
+			MemVirtual:  63.38,
+			MemRes:      44.41,
+			ConnCurrent: 2433,
+			ConnAvail:   49995,
+		},
+	}
 	model, cmd = m.Update(msg)
 	m = model.(RootModel)
 

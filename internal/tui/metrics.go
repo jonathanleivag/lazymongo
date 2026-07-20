@@ -64,6 +64,17 @@ type metricsData struct {
 	topTimes     map[string]int64
 }
 
+type spinnerTickMsg struct{}
+
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+func tickSpinnerCmd() tea.Cmd {
+	return tea.Tick(80*time.Millisecond, func(t time.Time) tea.Msg {
+		return spinnerTickMsg{}
+	})
+}
+
+
 type metricsModel struct {
 	client        mongo.Client
 	data          *metricsData
@@ -73,6 +84,7 @@ type metricsModel struct {
 	killOpID      int64
 	killNamespace string
 	killOpType    string
+	spinnerFrame  int
 }
 
 func newMetricsModel(client mongo.Client) metricsModel {
@@ -80,7 +92,10 @@ func newMetricsModel(client mongo.Client) metricsModel {
 }
 
 func (m metricsModel) initCmd() tea.Cmd {
-	return pollMetricsCmd(m.client, nil, 0)
+	return tea.Batch(
+		pollMetricsCmd(m.client, nil, 0),
+		tickSpinnerCmd(),
+	)
 }
 
 func (m metricsModel) Update(msg tea.Msg) (metricsModel, tea.Cmd) {
@@ -109,6 +124,13 @@ func (m metricsModel) Update(msg tea.Msg) (metricsModel, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case spinnerTickMsg:
+		if m.data == nil && m.err == nil {
+			m.spinnerFrame = (m.spinnerFrame + 1) % len(spinnerFrames)
+			return m, tickSpinnerCmd()
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "esc", "q", "m":
@@ -195,7 +217,8 @@ func (m metricsModel) View(width, height int) string {
 		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
 	}
 	if m.data == nil {
-		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, "Cargando métricas de rendimiento...")
+		spinner := lipgloss.NewStyle().Foreground(focusedBorderColor).Render(spinnerFrames[m.spinnerFrame])
+		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, fmt.Sprintf("%s Cargando métricas de rendimiento...", spinner))
 	}
 
 	// Layout columns
