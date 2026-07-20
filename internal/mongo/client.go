@@ -40,6 +40,7 @@ type Client interface {
 	DropCollection(ctx context.Context, db, coll string) error
 	DropDatabase(ctx context.Context, db string) error
 	RenameCollection(ctx context.Context, db, oldName, newName string) error
+	RunAdminCommand(ctx context.Context, cmd bson.D) (bson.M, error)
 }
 
 // RealClient implements Client against the official MongoDB Go driver.
@@ -261,4 +262,10 @@ func (c *RealClient) RenameCollection(ctx context.Context, db, oldName, newName 
 		return fmt.Errorf("renombrando collection %q a %q en %q: %w", oldName, newName, db, err)
 	}
 	return nil
+}
+
+func (c *RealClient) RunAdminCommand(ctx context.Context, cmd bson.D) (bson.M, error) {
+	var result bson.M
+	err := c.client.Database("admin").RunCommand(ctx, cmd).Decode(&result)
+	return result, err
 }

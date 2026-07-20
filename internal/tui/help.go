@@ -84,6 +84,7 @@ func (m helpModel) View() string {
 	b.WriteString("  Tab            ir al panel de Índices (solo si estás en Documentos)\n")
 	b.WriteString("  Esc            cerrar popups activos / cancelar modo de búsqueda o entrada de texto\n")
 	b.WriteString("  r              refrescar/recargar datos del panel activo\n")
+	b.WriteString("  m              abrir el monitor de métricas de rendimiento en tiempo real (Compass)\n")
 	b.WriteString("  ?              abrir/cerrar esta ayuda\n")
 	b.WriteString("  Ctrl+c         salir de la aplicación\n\n")
 

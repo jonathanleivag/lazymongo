@@ -181,3 +181,51 @@ func (f *FakeClient) RenameCollection(ctx context.Context, db, oldName, newName 
 	}
 	return nil
 }
+
+func (f *FakeClient) RunAdminCommand(ctx context.Context, cmd bson.D) (bson.M, error) {
+	if len(cmd) > 0 {
+		switch cmd[0].Key {
+		case "serverStatus":
+			return bson.M{
+				"mem": bson.M{
+					"virtual":  int32(64830),
+					"resident": int32(44450),
+				},
+				"connections": bson.M{
+					"current":   int32(2366),
+					"available": int32(10000),
+				},
+				"network": bson.M{
+					"bytesIn":  int64(602000),
+					"bytesOut": int64(2427000),
+				},
+				"opcounters": bson.M{
+					"insert":  int64(2),
+					"query":   int64(0),
+					"update":  int64(54),
+					"delete":  int64(0),
+					"getmore": int64(344),
+					"command": int64(341),
+				},
+			}, nil
+		case "currentOp":
+			return bson.M{
+				"inprog": bson.A{
+					bson.M{
+						"opid":              int64(482910),
+						"ns":                "haddacloud-v2.email_sents",
+						"microsecs_running": int64(804090),
+						"op":                "getmore",
+					},
+					bson.M{
+						"opid":              int64(482911),
+						"ns":                "chatbot-flows.flows",
+						"microsecs_running": int64(716720),
+						"op":                "getmore",
+					},
+				},
+			}, nil
+		}
+	}
+	return bson.M{}, nil
+}

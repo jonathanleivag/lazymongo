@@ -33,6 +33,7 @@ const (
 	popupConfirmWrite
 	popupDelete
 	popupHelp
+	popupMetrics
 )
 
 type RootModel struct {
@@ -53,6 +54,7 @@ type RootModel struct {
 	fieldEdit  fieldEditModel
 	idxList    idxListModel
 	delete     deleteFlowModel
+	metrics    metricsModel
 
 	// pending write awaiting confirmation via popupConfirmWrite
 	confirmWrite         confirmModel
@@ -304,12 +306,21 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.popup = popupNone
 			return m, nil
 		}
+		if m.popup == popupMetrics {
+			var cmd tea.Cmd
+			m.metrics, cmd = m.metrics.Update(msg)
+			return m, cmd
+		}
 		if keyMsg.String() == "?" && !m.inTextEntry() {
 			m.popup = popupHelp
 			return m, nil
 		}
 		if m.popup == popupNone && !m.inTextEntry() {
 			switch keyMsg.String() {
+			case "m":
+				m.popup = popupMetrics
+				m.metrics = newMetricsModel(m.client)
+				return m, m.metrics.initCmd()
 			case "r":
 				m.logf("Refrescando datos...")
 				switch m.focus {
@@ -355,6 +366,14 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case metricsPolledMsg:
+		if m.popup == popupMetrics {
+			var cmd tea.Cmd
+			m.metrics, cmd = m.metrics.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+
 	case connectedMsg:
 		if msg.Err != nil {
 			m.err = msg.Err
@@ -924,6 +943,8 @@ func (m RootModel) View() string {
 		return renderPopupOverlay(m.delete.View(), m.width, m.height)
 	case popupHelp:
 		return renderPopupOverlay(helpModel{focus: m.focus}.View(), m.width, m.height)
+	case popupMetrics:
+		return m.metrics.View(m.width, m.height)
 	}
 
 	if m.focus == panelConnections && (m.connPicker.creating || m.connPicker.editing || m.connPicker.confirmingDelete) {
@@ -1019,19 +1040,19 @@ func (m RootModel) View() string {
 func (m RootModel) footerText() string {
 	switch m.focus {
 	case panelStatus:
-		return "[0-5] panel  [j/k] mover log  [?] ayuda  [Ctrl+c] salir"
+		return "[0-5] panel  [j/k] mover log  [m] métricas  [?] ayuda  [Ctrl+c] salir"
 	case panelDatabases:
-		return "[0-5] panel  [j/k] mover  [/] buscar  [a] crear DB  [d] borrar DB  [r] refrescar  [?] ayuda  [Ctrl+c] salir"
+		return "[0-5] panel  [j/k] mover  [/] buscar  [a] crear DB  [d] borrar DB  [r] refrescar  [m] métricas  [?] ayuda  [Ctrl+c] salir"
 	case panelCollections:
-		return "[0-5] panel  [j/k] mover  [/] buscar  [a] crear  [e] renombrar  [d] borrar  [r] refrescar  [?] ayuda  [Ctrl+c] salir"
+		return "[0-5] panel  [j/k] mover  [/] buscar  [a] crear  [e] renombrar  [d] borrar  [r] refrescar  [m] métricas  [?] ayuda  [Ctrl+c] salir"
 	case panelIndexes:
-		return "[0-5] panel  [j/k] mover  [/] buscar  [a] crear índice  [d] borrar índice  [r] refrescar  [?] ayuda  [Ctrl+c] salir"
+		return "[0-5] panel  [j/k] mover  [/] buscar  [a] crear índice  [d] borrar índice  [r] refrescar  [m] métricas  [?] ayuda  [Ctrl+c] salir"
 	case panelConnections:
-		return "[0-5] panel  [j/k] mover  [Enter] conectar  [/] buscar  [a] crear  [e] editar  [d] borrar  [r] refrescar  [?] ayuda  [Ctrl+c] salir"
+		return "[0-5] panel  [j/k] mover  [Enter] conectar  [/] buscar  [a] crear  [e] editar  [d] borrar  [r] refrescar  [m] métricas  [?] ayuda  [Ctrl+c] salir"
 	case panelDocuments:
-		return "[1-5] panel  [Tab] índices  [j/k] mover  [Enter] ver  [/] filtro  [s] ordenar  [Ctrl+f] buscar en docs  [i] insertar  [d] borrar  [r] refrescar  [?] ayuda  [Ctrl+c] salir"
+		return "[1-5] panel  [Tab] índices  [j/k] mover  [Enter] ver  [/] filtro  [s] ordenar  [Ctrl+f] buscar en docs  [i] insertar  [d] borrar  [r] refrescar  [m] métricas  [?] ayuda  [Ctrl+c] salir"
 	default:
-		return "[0-5] panel  [j/k] mover  [?] ayuda  [Ctrl+c] salir"
+		return "[0-5] panel  [j/k] mover  [m] métricas  [?] ayuda  [Ctrl+c] salir"
 	}
 }
 

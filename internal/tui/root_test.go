@@ -1160,3 +1160,42 @@ func TestRootModel_NoArgLaunch_RendersConnectionPickerAsModal(t *testing.T) {
 		t.Fatalf("expected startup connection picker modal to be rendered, got:\n%s", view)
 	}
 }
+
+func TestRootModel_PressingMOpensMetricsPopupAndEscClosesIt(t *testing.T) {
+	fake := mongo.NewFakeClient()
+	m := NewRootModel(fake, &config.Connection{Name: "test"})
+
+	// Press 'm' to open metrics popup
+	var cmd tea.Cmd
+	var model tea.Model
+	model, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	m = model.(RootModel)
+	if m.popup != popupMetrics {
+		t.Fatalf("expected popup state to be popupMetrics, got %v", m.popup)
+	}
+	if cmd == nil {
+		t.Fatalf("expected an initial polling command")
+	}
+
+	// Trigger metricsPolledMsg from cmd
+	msg := cmd()
+	model, cmd = m.Update(msg)
+	m = model.(RootModel)
+
+	// Verify metrics data is loaded and rendered
+	view := m.View()
+	if !strings.Contains(view, "MONITOREO DE RENDIMIENTO DE MONGODB") {
+		t.Fatalf("expected metrics title in view, got:\n%s", view)
+	}
+
+	// Press Esc to close metrics popup
+	model, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = model.(RootModel)
+	if cmd != nil {
+		model, _ = m.Update(cmd())
+		m = model.(RootModel)
+	}
+	if m.popup != popupNone {
+		t.Fatalf("expected popup to close and be popupNone, got %v", m.popup)
+	}
+}
