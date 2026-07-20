@@ -60,6 +60,7 @@ type metricsData struct {
 	NetOutRate   float64
 	ActiveOps    []ActiveOpInfo
 	HottestColls []CollectionHotness
+	ActiveOpsErr string
 	topTimes     map[string]int64
 }
 
@@ -252,7 +253,10 @@ func (m metricsModel) View(width, height int) string {
 	}
 
 	right.WriteString(lipgloss.NewStyle().Bold(true).Render("OPERACIONES ACTIVAS (currentOp)") + "\n")
-	if len(m.data.ActiveOps) == 0 {
+	if m.data.ActiveOpsErr != "" {
+		warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+		right.WriteString(warnStyle.Render(fmt.Sprintf("  ⚠️ %s\n", m.data.ActiveOpsErr)))
+	} else if len(m.data.ActiveOps) == 0 {
 		right.WriteString("  (ninguna operación activa en ejecución)\n")
 	} else {
 		right.WriteString(fmt.Sprintf("    %-8s %-*s %-10s\n", "OPID", rightWidth-24, "COLECCIÓN", "DURACIÓN"))
@@ -426,11 +430,15 @@ func pollMetricsCmd(client mongo.Client, prev *metricsData, delay time.Duration)
 
 		// Query currentOp for active slow operations
 		var activeOps []ActiveOpInfo
-		opRaw, err := client.RunAdminCommand(ctx, bson.D{
+		var activeOpsErr string
+		opRaw, opErr := client.RunAdminCommand(ctx, bson.D{
 			{Key: "currentOp", Value: 1},
 			{Key: "active", Value: true},
+			{Key: "allUsers", Value: true},
 		})
-		if err == nil {
+		if opErr != nil {
+			activeOpsErr = opErr.Error()
+		} else {
 			if inprog, ok := toArray(opRaw["inprog"]); ok {
 				for _, opVal := range inprog {
 					if opMap, ok := toMap(opVal); ok {
@@ -470,6 +478,7 @@ func pollMetricsCmd(client mongo.Client, prev *metricsData, delay time.Duration)
 		data := parseServerStatus(statusRaw, prev)
 		data.ActiveOps = activeOps
 		data.HottestColls = hottestColls
+		data.ActiveOpsErr = activeOpsErr
 		data.topTimes = currentTimes
 		return metricsPolledMsg{Data: data}
 	}
